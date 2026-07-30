@@ -1,0 +1,157 @@
+# 컨테이너에 셸을 띄울 권한.
+#
+# **이 서비스만 `pods/exec` 를 갖는다.** exec 는 로그 조회와 성격이 다르다 —
+# 컨테이너 안에서 임의의 명령을 실행할 수 있으므로, 다른 서비스에 같이 얹지 않고
+# 이 서비스 하나에만 준다.
+#
+# ClusterRole 을 쓰지 않는 이유도 같다. 네임스페이스를 요청 파라미터로 받는
+# 서비스라 클러스터 전체 권한을 주면 설정 실수 하나로 kube-system 컨테이너까지
+# 열린다. 여기 적힌 네임스페이스만 열 수 있고, 서버도 같은 목록으로 한 번 더
+# 거절한다(20-configmap.yaml 의 ALLOWED_NAMESPACES).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-terminal-service
+  namespace: oncloud-ai
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-devops-workspace
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-devops-workspace
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-devops-service
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-devops-service
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-model-workspace
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-model-workspace
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-model-serving
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-model-serving
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai

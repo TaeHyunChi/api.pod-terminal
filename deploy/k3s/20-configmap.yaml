@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-terminal-service-config
+  namespace: oncloud-ai
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+data:
+  SERVICE_NAME: pod-terminal-service
+  API_PREFIX: /api/v1
+  PORT: "8247"
+  LOG_LEVEL: INFO
+  JSON_LOGS: "true"
+  JWT_ALGORITHM: HS256
+  AUTH_DISABLED: "false"
+  # 터미널은 응답이 끝나지 않는다. 워커당 스레드 수가 곧 동시 접속 수이고,
+  # 연결 하나가 컨테이너를 읽는 스레드를 하나 더 쓴다.
+  GUNICORN_WORKERS: "1"
+  GUNICORN_THREADS: "64"
+  # 터미널은 사용자가 치지 않는 동안 아무 것도 흐르지 않는다. 알리지 않으면
+  # 프록시(Kong)가 유휴 연결을 끊는다.
+  WS_PING_SECONDS: "25"
+  # 터미널을 열어도 되는 네임스페이스. exec 는 컨테이너 안에서 임의의 명령을
+  # 실행하는 권한이라, 목록이 없으면 로그인한 사람이 kube-system 컨테이너에
+  # 셸을 띄울 수 있다. RBAC 도 이 네임스페이스들에만 준다(30-rbac.yaml).
+  ALLOWED_NAMESPACES: >-
+    oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-model-serving
