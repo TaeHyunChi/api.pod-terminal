@@ -155,3 +155,37 @@ subjects:
   - kind: ServiceAccount
     name: pod-terminal-service
     namespace: oncloud-ai
+---
+# 플랫폼 네임스페이스 — 클러스터 관리(리소스 브라우저)의 Pod 터미널.
+# kube-system 은 여전히 뺀다(허용 목록의 이유 그대로).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # WebSocket 업그레이드 요청이 GET 이라 create 와 get 둘 다 필요하다.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai
