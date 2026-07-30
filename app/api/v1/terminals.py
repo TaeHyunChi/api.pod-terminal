@@ -29,7 +29,7 @@ import threading
 from flask import Blueprint, current_app, request
 
 from ... import kube_exec
-from ...auth import subject_from_query
+from ...auth import subject_from_query, subject_from_request
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,62 @@ bp = Blueprint("terminals", __name__, url_prefix="/terminals")
 def allowed_namespaces():
     """터미널을 열 수 있는 네임스페이스 목록 — 화면이 고를 수 있게."""
     return {"items": list(current_app.config["ALLOWED_NAMESPACES"])}
+
+
+@bp.get("/pod-status")
+def get_pod_status():
+    """터미널을 열기 전의 Pod 상태 확인.
+
+    "접속해도 되는가" 의 판단(`available`)을 **여기서** 내린다 — 화면마다 제각기
+    판단하면 MFE 가 늘 때마다 규칙이 갈라진다. 터미널은 셸 프로세스를 새로 띄우는
+    일이라 **Running 인 Pod 에만** 열 수 있다 — 로그와 달리 Succeeded/Failed 는
+    오브젝트가 남아 있어도 exec 가 안 된다.
+
+        { "name", "namespace", "exists", "phase", "ready",
+          "startedAt", "message", "available" }
+    """
+    if not subject_from_request():
+        return {"code": "UNAUTHORIZED", "message": "인증이 필요합니다."}, 401
+
+    namespace = (request.args.get("namespace") or "").strip()
+    pod = (request.args.get("pod") or request.args.get("podId") or "").strip()
+    if not namespace or not pod:
+        return {"code": "BAD_REQUEST", "message": "namespace 와 pod 는 필수입니다."}, 400
+    if namespace not in current_app.config["ALLOWED_NAMESPACES"]:
+        # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
+        return {"code": "FORBIDDEN", "message": "이 네임스페이스는 조회할 수 없습니다."}, 403
+    if not kube_exec.in_cluster():
+        return {"code": "K8S_UNAVAILABLE", "message": "클러스터 밖에서는 조회할 수 없습니다."}, 502
+
+    try:
+        status = kube_exec.pod_status(namespace, pod)
+    except kube_exec.ExecError as exc:
+        return {"code": "K8S_UNAVAILABLE", "message": str(exc)}, 502
+
+    if status is None:
+        return {
+            "name": pod,
+            "namespace": namespace,
+            "exists": False,
+            "phase": "",
+            "ready": False,
+            "startedAt": "",
+            "message": "Pod 를 찾을 수 없습니다. 이미 종료된 배포의 Pod 는 클러스터에 남아 있지 않습니다.",
+            "available": False,
+        }
+
+    running = status["phase"] == "Running"
+    return {
+        "name": pod,
+        "namespace": namespace,
+        "exists": True,
+        "phase": status["phase"],
+        "ready": status["ready"],
+        "startedAt": status["startedAt"],
+        "message": status["reason"]
+        or ("" if running else "실행 중인 Pod 에만 터미널을 열 수 있습니다."),
+        "available": running,
+    }
 
 
 def _send(ws, payload: dict) -> None:

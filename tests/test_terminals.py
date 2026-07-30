@@ -158,3 +158,67 @@ def test_connect_clears_the_read_timeout(app, monkeypatch):
     with app.app_context():
         assert kube_exec.connect("ns", "p") is conn
     assert conn.timeout is None
+
+
+# --------------------------------------------------------------------------- #
+# Pod 상태 확인 — 터미널은 Running 인 Pod 에만 연다
+# --------------------------------------------------------------------------- #
+def _status(client, query):
+    return client.get(f"/api/v1/terminals/pod-status?{query}")
+
+
+def test_pod_status_requires_namespace_and_pod(client):
+    assert _status(client, "namespace=oncloud-ai-devops-service").status_code == 400
+    assert _status(client, "pod=p").status_code == 400
+
+
+def test_pod_status_refuses_namespaces_outside_the_allowlist(client):
+    res = _status(client, "namespace=kube-system&pod=etcd-0")
+    assert res.status_code == 403
+    assert "kube-system" not in res.get_json()["message"]
+
+
+def test_pod_status_outside_cluster_is_502(client):
+    res = _status(client, "namespace=oncloud-ai-devops-service&pod=p")
+    assert res.status_code == 502
+
+
+def test_missing_pod_is_not_available(client, monkeypatch):
+    """사라진 Pod 는 exists/available 이 false — 화면은 상태 정보만 그린다."""
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(kube_exec, "pod_status", lambda ns, pod: None)
+    body = _status(client, "namespace=oncloud-ai-devops-service&pod=gone").get_json()
+    assert body["exists"] is False
+    assert body["available"] is False
+    assert body["message"]
+
+
+def test_running_pod_is_available(client, monkeypatch):
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(
+        kube_exec,
+        "pod_status",
+        lambda ns, pod: {
+            "phase": "Running", "ready": True,
+            "startedAt": "2026-07-30T01:00:00Z", "reason": "",
+        },
+    )
+    body = _status(client, "namespace=oncloud-ai-devops-service&pod=web-1").get_json()
+    assert body["exists"] is True and body["available"] is True
+
+
+def test_terminated_pod_gets_no_terminal(client, monkeypatch):
+    """로그와 다른 점 — Pod 오브젝트가 남아 있어도 Running 이 아니면 exec 는 안 된다."""
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(
+        kube_exec,
+        "pod_status",
+        lambda ns, pod: {
+            "phase": "Succeeded", "ready": False,
+            "startedAt": "2026-07-30T01:00:00Z", "reason": "",
+        },
+    )
+    body = _status(client, "namespace=oncloud-ai-devops-service&pod=done").get_json()
+    assert body["exists"] is True
+    assert body["available"] is False
+    assert body["message"]

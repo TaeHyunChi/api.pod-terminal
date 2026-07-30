@@ -21,7 +21,9 @@ import json
 import logging
 import os
 import ssl
+import urllib.error
 import urllib.parse
+import urllib.request
 
 from flask import current_app
 
@@ -53,6 +55,60 @@ def _token() -> str:
     # 토큰은 회전한다 — 붙을 때마다 다시 읽는다.
     with open(TOKEN_PATH, encoding="utf-8") as handle:
         return handle.read().strip()
+
+
+def pod_status(namespace: str, pod: str) -> dict | None:
+    """Pod 한 개의 현재 상태. 없으면(삭제됐으면) None.
+
+    터미널을 열기 전의 **상태 확인**에 쓴다 — 이미 사라진 Pod 에 exec 를 열려고
+    하면 사용자에게는 원인 없는 연결 실패로만 보인다. 먼저 물어보고, 접속할 수
+    없으면 화면이 상태 정보만 그리게 한다. (log-stream 서비스와 같은 모양)
+    """
+    path = (
+        f"/api/v1/namespaces/{urllib.parse.quote(namespace)}"
+        f"/pods/{urllib.parse.quote(pod)}"
+    )
+    api = current_app.config["K8S_API"].rstrip("/")
+    request = urllib.request.Request(f"{api}{path}", method="GET")  # noqa: S310
+    request.add_header("Authorization", f"Bearer {_token()}")
+    context = ssl.create_default_context(cafile=CA_PATH)
+    try:
+        with urllib.request.urlopen(  # noqa: S310
+            request, timeout=current_app.config["K8S_CONNECT_TIMEOUT"], context=context
+        ) as response:
+            body = json.loads(response.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        if exc.code in (401, 403):
+            raise ExecError("이 Pod 를 조회할 권한이 없습니다.") from None
+        raise ExecError(f"Pod 상태를 가져오지 못했습니다({exc.code}).") from None
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        log.warning("Pod 상태 조회 실패: %s/%s %s", namespace, pod, exc)
+        raise ExecError("k8s API 에 연결할 수 없습니다.") from None
+
+    status = body.get("status") or {}
+    ready = any(
+        c.get("type") == "Ready" and c.get("status") == "True"
+        for c in status.get("conditions") or []
+        if isinstance(c, dict)
+    )
+    # 왜 안 뜨는지(CrashLoopBackOff 같은 것)는 컨테이너 상태에 들어 있다.
+    reason = ""
+    for cs in status.get("containerStatuses") or []:
+        state = (cs or {}).get("state") or {}
+        reason = (
+            (state.get("waiting") or {}).get("reason")
+            or (state.get("terminated") or {}).get("reason")
+            or reason
+        )
+
+    return {
+        "phase": status.get("phase") or "",
+        "ready": ready,
+        "startedAt": status.get("startTime") or "",
+        "reason": reason,
+    }
 
 
 def exec_url(namespace: str, pod: str, *, container: str, command: list[str]) -> str:
