@@ -34,6 +34,23 @@ class Config:
     )
 
 
+    # --- 노드 셸 (호스트 터미널) ---
+    #: 특권 debug Pod 를 만들 네임스페이스. 앱 네임스페이스와 섞지 않는다 —
+    #: RBAC 을 좁게 주고, 그 이름으로 다른 워크로드를 흉내 낼 수 없게 한다.
+    NODE_SHELL_NAMESPACE = os.getenv("NODE_SHELL_NAMESPACE", "oncloud-ai-node-shell")
+    #: debug Pod 이미지. 노드에 이미 있는 것을 쓴다(외부망이 막혀도 뜬다).
+    #: nsenter 애플릿이 있어야 한다 — busybox 에 들어 있다.
+    NODE_SHELL_IMAGE = os.getenv(
+        "NODE_SHELL_IMAGE", "docker.io/rancher/mirrored-library-busybox:1.37.0"
+    )
+    #: 노드 셸을 열 수 있는 역할 id. **비워 두면 아무도 열 수 없다** —
+    #: 노드 root 권한이라 기본값을 여는 쪽으로 두지 않는다.
+    NODE_SHELL_ROLE_IDS = _csv("NODE_SHELL_ROLE_IDS", "seed-admin")
+    #: debug Pod 가 Running 이 될 때까지 기다리는 시간(초).
+    NODE_SHELL_START_TIMEOUT = int(os.getenv("NODE_SHELL_START_TIMEOUT", "60"))
+    #: debug Pod 의 최대 수명(초). 서버가 지우지 못하고 죽어도 스스로 끝난다.
+    NODE_SHELL_MAX_SECONDS = int(os.getenv("NODE_SHELL_MAX_SECONDS", "3600"))
+
     #: 유휴 연결이 프록시에 끊기지 않도록 보내는 ping 간격(초).
     #:
     #: 터미널은 사용자가 아무것도 치지 않는 동안 아무 것도 흐르지 않는다. Kong 같은
@@ -47,3 +64,4 @@ class TestConfig(Config):
     AUTH_DISABLED = True
     JSON_LOGS = False
     ALLOWED_NAMESPACES = ["oncloud-ai-devops-service", "oncloud-ai-devops-workspace"]
+    NODE_SHELL_ROLE_IDS = ["seed-admin"]

@@ -3,7 +3,7 @@
 from flask import Blueprint
 
 from .terminals import bp as terminals_bp
-from .terminals import stream
+from .terminals import node_stream, stream
 
 
 def register_v1(app, prefix: str = "/api/v1") -> None:
@@ -27,3 +27,5 @@ def _register_socket(app, prefix: str) -> None:
 
     sock = Sock(app)
     sock.route(f"{prefix}/terminals/exec")(stream)
+    # 노드 셸은 별도 경로다 — 인자(namespace/pod vs node)도 권한 기준도 다르다.
+    sock.route(f"{prefix}/terminals/node-exec")(node_stream)

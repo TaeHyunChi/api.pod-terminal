@@ -25,3 +25,8 @@ data:
   # 셸을 띄울 수 있다. RBAC 도 이 네임스페이스들에만 준다(30-rbac.yaml).
   ALLOWED_NAMESPACES: >-
     oncloud-ai,oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-model-serving
+  # 노드 셸(호스트 터미널) — 노드 root 권한이라 관리자 역할만 열 수 있다.
+  # 비워 두면 아무도 열 수 없다.
+  NODE_SHELL_NAMESPACE: oncloud-ai-node-shell
+  NODE_SHELL_ROLE_IDS: seed-admin
+  NODE_SHELL_IMAGE: docker.io/rancher/mirrored-library-busybox:1.37.0

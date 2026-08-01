@@ -31,6 +31,38 @@ def subject_from_request() -> str | None:
     return subject_from_query()
 
 
+def claims_from_query() -> dict | None:
+    """토큰의 claim 전체 — 역할 판정처럼 `sub` 만으로 부족할 때 쓴다.
+
+    노드 셸이 이것을 쓴다: 노드 root 권한이라 "로그인했는가" 로는 부족하고
+    `roleIds` 를 봐야 한다.
+    """
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        header = (request.headers.get("Authorization") or "").strip()
+        if header.lower().startswith("bearer "):
+            token = header[7:].strip()
+    return _claims(token)
+
+
+def _claims(token: str) -> dict | None:
+    if current_app.config.get("AUTH_DISABLED"):
+        return {"sub": (request.args.get("userId") or "anonymous").strip() or "anonymous"}
+    secret = current_app.config.get("JWT_SECRET")
+    if not token or not secret:
+        return None
+    try:
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=[current_app.config.get("JWT_ALGORITHM", "HS256")],
+            options={"require": ["exp"], "verify_aud": False},
+        )
+    except jwt.InvalidTokenError as exc:
+        log.info("ws 토큰 거절: %s", exc)
+        return None
+
+
 def _subject(token: str) -> str | None:
     if current_app.config.get("AUTH_DISABLED"):
         return (request.args.get("userId") or "anonymous").strip() or "anonymous"

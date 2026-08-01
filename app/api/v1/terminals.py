@@ -28,8 +28,8 @@ import threading
 
 from flask import Blueprint, current_app, request
 
-from ... import kube_exec
-from ...auth import subject_from_query, subject_from_request
+from ... import kube_exec, node_shell
+from ...auth import claims_from_query, subject_from_query, subject_from_request
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,42 @@ bp = Blueprint("terminals", __name__, url_prefix="/terminals")
 def allowed_namespaces():
     """터미널을 열 수 있는 네임스페이스 목록 — 화면이 고를 수 있게."""
     return {"items": list(current_app.config["ALLOWED_NAMESPACES"])}
+
+
+@bp.get("/node-status")
+def get_node_status():
+    """노드 셸을 열기 전 확인 — 있는 노드인지, 이 사람이 열 수 있는지.
+
+    화면이 버튼을 미리 잠글 수 있어야 한다. 붙고 나서 거절하면 사용자는 무엇이
+    문제인지 모른 채 검은 화면만 본다.
+    """
+    claims = claims_from_query()
+    if not claims:
+        return {"code": "UNAUTHORIZED", "message": "인증이 필요합니다."}, 401
+
+    node = (request.args.get("node") or "").strip()
+    if not node:
+        return {"code": "INVALID_PARAMETER", "message": "node 파라미터가 필요합니다."}, 400
+
+    allowed = _is_node_shell_admin(claims)
+    if not kube_exec.in_cluster():
+        return {
+            "node": node, "exists": False, "allowed": allowed, "available": False,
+            "message": "클러스터 밖에서는 노드 셸을 열 수 없습니다.",
+        }
+
+    exists = node_shell.node_exists(node)
+    return {
+        "node": node,
+        "exists": exists,
+        # 이 사람이 노드 셸을 열 자격이 있는가(관리자 역할).
+        "allowed": allowed,
+        "available": bool(exists and allowed),
+        "message": (
+            "" if exists and allowed
+            else ("노드를 찾을 수 없습니다." if not exists else "노드 셸은 관리자만 열 수 있습니다.")
+        ),
+    }
 
 
 @bp.get("/pod-status")
@@ -227,3 +263,103 @@ def _handle(upstream, message: str) -> None:
         upstream.send_binary(
             kube_exec.resize_frame(payload.get("cols") or 80, payload.get("rows") or 24)
         )
+
+
+# --------------------------------------------------------------------------- #
+# 노드 셸 — 호스트에 붙는 터미널
+# --------------------------------------------------------------------------- #
+def _is_node_shell_admin(claims: dict) -> bool:
+    """노드 셸을 열 자격 — 관리자 역할이 있어야 한다.
+
+    Pod 터미널은 로그인한 사용자면 열 수 있지만 이것은 **노드 root 권한**이라
+    같은 기준을 쓸 수 없다. 역할 id 는 auth-service 가 토큰에 실어 준다.
+    """
+    if current_app.config.get("AUTH_DISABLED"):
+        return True
+    required = set(current_app.config["NODE_SHELL_ROLE_IDS"])
+    if not required:
+        # 목록이 비었으면 **아무도** 열 수 없다. 열어 두는 쪽이 위험하다.
+        return False
+    role_ids = claims.get("roleIds")
+    return bool(required & set(role_ids)) if isinstance(role_ids, list) else False
+
+
+def node_stream(ws) -> None:
+    """노드 셸 WebSocket.
+
+    Pod 터미널(`stream`)과 다른 점은 **붙기 전에 Pod 를 만들고 끝나면 지운다**는
+    것뿐이다. 붙은 뒤의 프레임 규약은 완전히 같아서 화면은 같은 컴포넌트를 쓴다.
+    """
+    claims = claims_from_query()
+    if not claims:
+        ws.close(1008, "unauthorized")
+        return
+    if not _is_node_shell_admin(claims):
+        _send(ws, {"type": "error", "message": "노드 셸은 관리자만 열 수 있습니다."})
+        ws.close(1008, "forbidden")
+        return
+
+    node = (request.args.get("node") or "").strip()
+    if not node:
+        _send(ws, {"type": "error", "message": "node 파라미터가 필요합니다."})
+        ws.close(1008, "bad-request")
+        return
+
+    if not kube_exec.in_cluster():
+        _send(ws, {"type": "error", "message": "클러스터 밖에서는 노드 셸을 열 수 없습니다."})
+        ws.close(1011, "no-cluster")
+        return
+
+    user_id = claims.get("sub") or "unknown"
+    pod_name = ""
+    try:
+        if not node_shell.node_exists(node):
+            raise kube_exec.ExecError(f"노드 '{node}' 를 찾을 수 없습니다.")
+        # 특권 Pod 를 만드는 데 몇 초 걸린다 — 화면이 멈춘 것처럼 보이지 않게 알린다.
+        _send(ws, {"type": "output", "data": f"[{node}] 노드 셸을 준비하는 중...\r\n"})
+        pod_name = node_shell.create_debug_pod(node, user_id)
+        node_shell.wait_running(pod_name, current_app.config["NODE_SHELL_START_TIMEOUT"])
+        upstream = kube_exec.connect(
+            current_app.config["NODE_SHELL_NAMESPACE"],
+            pod_name,
+            command=node_shell.NSENTER_COMMAND,
+        )
+    except kube_exec.ExecError as exc:
+        if pod_name:
+            node_shell.delete_debug_pod(pod_name)
+        _send(ws, {"type": "error", "message": str(exc)})
+        ws.close(1011, "node-shell-failed")
+        return
+
+    _send(ws, {"type": "ready"})
+    # 호스트 셸은 흔적이 남아야 한다 — 누가 언제 어느 노드에 열었는지.
+    log.warning("노드 셸 열림: node=%s user=%s pod=%s", node, user_id, pod_name)
+
+    done = threading.Event()
+    reader = threading.Thread(
+        target=_pump_to_browser,
+        args=(current_app._get_current_object(), upstream, ws, done),
+        daemon=True,
+        name=f"node-{node[:36]}",
+    )
+    reader.start()
+
+    ping_seconds = current_app.config["WS_PING_SECONDS"]
+    try:
+        while not done.is_set():
+            message = ws.receive(timeout=ping_seconds)
+            if message is None:
+                _send(ws, {"type": "ping"})
+                continue
+            _handle(upstream, message)
+    except Exception:  # noqa: BLE001 — 정상 종료도 예외로 온다
+        pass
+    finally:
+        done.set()
+        try:
+            upstream.close()
+        except Exception:  # noqa: BLE001
+            pass
+        # 특권 Pod 를 반드시 지운다. 남으면 그 노드에 root 컨테이너가 방치된다.
+        node_shell.delete_debug_pod(pod_name)
+        log.warning("노드 셸 닫힘: node=%s user=%s pod=%s", node, user_id, pod_name)

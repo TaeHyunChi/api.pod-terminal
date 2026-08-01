@@ -1,5 +1,5 @@
 IMAGE    ?= pod-terminal-service
-TAG      ?= 0.1.4
+TAG      ?= 0.2.0
 NS       ?= oncloud-ai
 REGISTRY ?= oncloud-ai.co.kr:5000/oncloud-ai
 NODE     ?= k3s-master
