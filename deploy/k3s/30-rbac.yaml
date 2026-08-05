@@ -271,3 +271,37 @@ subjects:
   - kind: ServiceAccount
     name: pod-terminal-service
     namespace: oncloud-ai
+---
+# 에이전트 서비스 인스턴스 네임스페이스 — 인스턴스 Pod 는 런타임 + web sidecar 로
+# **컨테이너가 여럿**이라 어느 것에 붙을지 고를 수 있어야 한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-agent-runtime
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # WebSocket 업그레이드가 GET 이라 create 만으로는 403 이다(다른 ns 규칙과 동일).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-agent-runtime
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai
