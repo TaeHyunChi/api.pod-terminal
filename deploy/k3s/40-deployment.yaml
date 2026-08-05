@@ -44,7 +44,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: pod-terminal-service
-          image: oncloud-ai.co.kr:5000/platform/pod-terminal-service:0.2.1
+          image: oncloud-ai.co.kr:5000/platform/pod-terminal-service:0.2.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

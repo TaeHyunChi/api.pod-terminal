@@ -118,6 +118,7 @@ def get_pod_status():
             "startedAt": "",
             "message": "Pod 를 찾을 수 없습니다. 이미 종료된 배포의 Pod 는 클러스터에 남아 있지 않습니다.",
             "available": False,
+            "containers": [],
         }
 
     running = status["phase"] == "Running"
@@ -131,6 +132,11 @@ def get_pod_status():
         "message": status["reason"]
         or ("" if running else "실행 중인 Pod 에만 터미널을 열 수 있습니다."),
         "available": running,
+        # 터미널은 **실행 중인** 컨테이너에만 붙을 수 있다 — init/종료된 것은 뺀다.
+        "containers": [
+            c for c in (status.get("containers") or [])
+            if not c.get("init") and c.get("state") == "running"
+        ],
     }
 
 
