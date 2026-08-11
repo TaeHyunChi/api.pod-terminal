@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: pod-terminal-service-config
-  namespace: oncloud-ai
+  namespace: oncloud-ai-platform
   labels:
     app.kubernetes.io/name: pod-terminal-service
 data:

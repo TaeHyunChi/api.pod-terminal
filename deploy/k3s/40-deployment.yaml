@@ -6,7 +6,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pod-terminal-service
-  namespace: oncloud-ai
+  namespace: oncloud-ai-platform
   labels:
     app.kubernetes.io/name: pod-terminal-service
     app.kubernetes.io/component: api
