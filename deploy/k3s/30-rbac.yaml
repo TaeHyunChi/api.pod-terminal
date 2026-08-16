@@ -305,3 +305,36 @@ subjects:
   - kind: ServiceAccount
     name: pod-terminal-service
     namespace: oncloud-ai-platform
+---
+# 플랫폼 MSA 자체의 터미널 — 컨트롤 패널의 노드 우클릭 터미널 팝업이 쓴다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-platform
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙 — WebSocket 업그레이드가 GET 이라 get 도 필요.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-platform
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
