@@ -29,7 +29,7 @@ class Config:
     #: 막지만(Role 을 이 네임스페이스들에만 준다) 서버가 먼저 거절한다.
     ALLOWED_NAMESPACES = _csv(
         "ALLOWED_NAMESPACES",
-        "oncloud-ai-platform,oncloud-ai-devops-workspace,oncloud-ai-devops-service,"
+        "oncloud-ai-platform,oncloud-ai-sandbox,oncloud-ai-devops-workspace,oncloud-ai-devops-service,"
         "oncloud-ai-model-workspace,oncloud-ai-model-serving",
     )
 

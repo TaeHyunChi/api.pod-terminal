@@ -24,7 +24,7 @@ data:
   # 실행하는 권한이라, 목록이 없으면 로그인한 사람이 kube-system 컨테이너에
   # 셸을 띄울 수 있다. RBAC 도 이 네임스페이스들에만 준다(30-rbac.yaml).
   ALLOWED_NAMESPACES: >-
-    oncloud-ai-platform,oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-model-serving,oncloud-ai-agent-runtime
+    oncloud-ai-platform,oncloud-ai-sandbox,oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-model-serving,oncloud-ai-agent-runtime
   # 노드 셸(호스트 터미널) — 노드 root 권한이라 관리자 역할만 열 수 있다.
   # 비워 두면 아무도 열 수 없다.
   NODE_SHELL_NAMESPACE: oncloud-ai-node-shell

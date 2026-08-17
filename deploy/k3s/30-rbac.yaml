@@ -338,3 +338,36 @@ subjects:
   - kind: ServiceAccount
     name: pod-terminal-service
     namespace: oncloud-ai-platform
+---
+# 스크립트 샌드박스 터미널 세션 Pod 의 셸 — script MFE 의 터미널 팝업이 쓴다.
+# 샌드박스는 이미 임의 사용자 스크립트를 실행하는 곳이라 셸 접속이 새 위협을 더하지 않는다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-sandbox
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-sandbox
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
