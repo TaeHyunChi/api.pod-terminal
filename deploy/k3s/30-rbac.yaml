@@ -371,3 +371,318 @@ subjects:
   - kind: ServiceAccount
     name: pod-terminal-service
     namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-agent-ecosystem
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-agent-ecosystem
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-build
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-build
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-chroma
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-chroma
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-database
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-database
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-gitea
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-gitea
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-harbor
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-harbor
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-kong
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-kong
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-rabbitmq
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-rabbitmq
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-workflow-ecosystem
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+rules:
+  # Pod 조회는 이름이 맞는지 확인하는 데 쓴다.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # exec 는 하위 리소스라 별도 규칙이다. 동사가 **둘 다** 필요하다 —
+  # kubectl 이 쓰는 SPDY 방식은 POST(create)지만, 우리가 쓰는 WebSocket 방식은
+  # 업그레이드 요청이 GET 이라 get 이 없으면 403 이 난다(실제로 겪었다).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-terminal-exec
+  namespace: oncloud-ai-workflow-ecosystem
+  labels:
+    app.kubernetes.io/name: pod-terminal-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-terminal-exec
+subjects:
+  - kind: ServiceAccount
+    name: pod-terminal-service
+    namespace: oncloud-ai-platform
