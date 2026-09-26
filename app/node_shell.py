@@ -92,6 +92,21 @@ def node_exists(node: str) -> bool:
     return True
 
 
+def node_uids() -> list[str]:
+    """이 클러스터 노드의 UID 목록 — 화면이 "이 중계가 붙는 클러스터"를 가리는 데 쓴다.
+
+    노드 조회 권한(ClusterRole pod-terminal-node-read)은 노드 셸 때문에 이미 있다.
+    """
+    body = _request("GET", "/api/v1/nodes")
+    return sorted(
+        {
+            uid
+            for uid in ((item.get("metadata") or {}).get("uid") for item in body.get("items") or [])
+            if uid
+        }
+    )
+
+
 def debug_pod_manifest(node: str, name: str, user_id: str) -> dict:
     """노드에 붙기 위한 특권 Pod.
 

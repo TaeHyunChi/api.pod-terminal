@@ -41,7 +41,7 @@ class Config:
     #: debug Pod 이미지. 노드에 이미 있는 것을 쓴다(외부망이 막혀도 뜬다).
     #: nsenter 애플릿이 있어야 한다 — busybox 에 들어 있다.
     NODE_SHELL_IMAGE = os.getenv(
-        "NODE_SHELL_IMAGE", "docker.io/rancher/mirrored-library-busybox:1.37.0"
+        "NODE_SHELL_IMAGE", "oncloud-ai.co.kr:5000/system/busybox:1.36"
     )
     #: 노드 셸을 열 수 있는 역할 id. **비워 두면 아무도 열 수 없다** —
     #: 노드 root 권한이라 기본값을 여는 쪽으로 두지 않는다.

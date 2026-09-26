@@ -29,4 +29,4 @@ data:
   # 비워 두면 아무도 열 수 없다.
   NODE_SHELL_NAMESPACE: oncloud-ai-node-shell
   NODE_SHELL_ROLE_IDS: seed-admin
-  NODE_SHELL_IMAGE: docker.io/rancher/mirrored-library-busybox:1.37.0
+  NODE_SHELL_IMAGE: oncloud-ai.co.kr:5000/system/busybox:1.36

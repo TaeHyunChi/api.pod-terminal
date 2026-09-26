@@ -42,6 +42,29 @@ def allowed_namespaces():
     return {"items": list(current_app.config["ALLOWED_NAMESPACES"])}
 
 
+@bp.get("/cluster-identity")
+def get_cluster_identity():
+    """이 중계가 붙는 클러스터의 식별 정보(노드 UID).
+
+    중계는 **자기가 떠 있는 클러스터에만** exec 를 연다. 클러스터 관리 화면은 여러
+    클러스터를 다루므로, 고른 클러스터의 노드 UID(k8s-cluster-service
+    `/clusters/{id}/identity`)와 이 목록이 겹칠 때만 터미널을 연다 — 다른 클러스터의
+    같은 이름 Pod/노드에 엉뚱하게 붙는 일을 막는다.
+    """
+    if not subject_from_request():
+        return {"code": "UNAUTHORIZED", "message": "인증이 필요합니다."}, 401
+    if not kube_exec.in_cluster():
+        return {
+            "available": False, "nodeUids": [],
+            "message": "클러스터 밖에서는 터미널을 열 수 없습니다.",
+        }
+    try:
+        uids = node_shell.node_uids()
+    except kube_exec.ExecError as exc:
+        return {"code": "K8S_UNAVAILABLE", "message": str(exc)}, 502
+    return {"available": True, "nodeUids": uids, "message": ""}
+
+
 @bp.get("/node-status")
 def get_node_status():
     """노드 셸을 열기 전 확인 — 있는 노드인지, 이 사람이 열 수 있는지.

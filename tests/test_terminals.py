@@ -222,3 +222,49 @@ def test_terminated_pod_gets_no_terminal(client, monkeypatch):
     assert body["exists"] is True
     assert body["available"] is False
     assert body["message"]
+
+
+# --------------------------------------------------------------------------- #
+# 클러스터 식별 — 화면이 "이 중계가 붙는 클러스터" 인지 가린다
+# --------------------------------------------------------------------------- #
+def test_cluster_identity_outside_cluster_is_unavailable(client):
+    body = client.get("/api/v1/terminals/cluster-identity").get_json()
+    assert body["available"] is False
+    assert body["nodeUids"] == []
+
+
+def test_cluster_identity_lists_node_uids(client, monkeypatch):
+    from app import node_shell
+
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(
+        node_shell,
+        "_request",
+        lambda method, path, payload=None: {
+            "items": [
+                {"metadata": {"name": "b", "uid": "uid-2"}},
+                {"metadata": {"name": "a", "uid": "uid-1"}},
+                {"metadata": {"name": "x"}},
+            ]
+        },
+    )
+    body = client.get("/api/v1/terminals/cluster-identity").get_json()
+    assert body == {"available": True, "nodeUids": ["uid-1", "uid-2"], "message": ""}
+
+
+def test_cluster_identity_k8s_failure_is_502(client, monkeypatch):
+    from app import node_shell
+
+    def boom():
+        raise kube_exec.ExecError("k8s API 에 연결할 수 없습니다.")
+
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(node_shell, "node_uids", boom)
+    res = client.get("/api/v1/terminals/cluster-identity")
+    assert res.status_code == 502
+
+
+def test_cluster_identity_requires_auth(app, client):
+    app.config["AUTH_DISABLED"] = False
+    app.config["JWT_SECRET"] = "test-secret"
+    assert client.get("/api/v1/terminals/cluster-identity").status_code == 401
