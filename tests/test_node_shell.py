@@ -174,3 +174,95 @@ def test_delete_never_raises(app, monkeypatch):
     monkeypatch.setattr(node_shell, "_request", _raise)
     with app.test_request_context():
         node_shell.delete_debug_pod("node-shell-x")  # 예외가 나오면 실패다
+
+
+# --------------------------------------------------------------------------- #
+# 권한 위임 — NODE_SHELL_ROLE_IDS 역할이 없어도 `pod-terminal.node-shell.access` 권한이면 허용
+# --------------------------------------------------------------------------- #
+PERM = "pod-terminal.node-shell.access"
+
+
+class _FakeWs:
+    def __init__(self):
+        self.sent: list[str] = []
+        self.closed = None
+
+    def send(self, data):
+        self.sent.append(data)
+
+    def close(self, code=1000, reason=""):
+        self.closed = (code, reason)
+
+
+def test_permission_claim_allows_a_normal_user(app):
+    with app.test_request_context():
+        assert _is_node_shell_admin({"roleIds": ["seed-user"], "permissions": [PERM]}) is True
+
+
+def test_other_permission_is_refused(app):
+    with app.test_request_context():
+        claims = {"roleIds": ["seed-user"], "permissions": ["k8s-cluster.node.drain"]}
+        assert _is_node_shell_admin(claims) is False
+        # 배열이 아닌 클레임은 무효
+        assert _is_node_shell_admin({"roleIds": ["seed-user"], "permissions": PERM}) is False
+
+
+def test_node_shell_role_ids_rule_is_kept(app):
+    """ADMIN_ROLE_ID 가 아닌 역할도 NODE_SHELL_ROLE_IDS 에 있으면 지금처럼 연다."""
+    with app.test_request_context():
+        app.config["NODE_SHELL_ROLE_IDS"] = ["seed-ops"]
+        assert _is_node_shell_admin({"roleIds": ["seed-ops"]}) is True
+
+
+def test_admin_role_passes_via_permission_rule(app):
+    """관리자는 늘 모든 권한 — NODE_SHELL_ROLE_IDS 에 없어도(목록이 비지 않았으면) 연다."""
+    with app.test_request_context():
+        app.config["NODE_SHELL_ROLE_IDS"] = ["seed-ops"]
+        assert _is_node_shell_admin({"roleIds": ["seed-admin"]}) is True
+
+
+def test_empty_role_list_also_blocks_the_permission(app):
+    with app.test_request_context():
+        app.config["NODE_SHELL_ROLE_IDS"] = []
+        assert _is_node_shell_admin({"roleIds": ["seed-user"], "permissions": [PERM]}) is False
+
+
+def test_node_status_allowed_with_permission(app, client, monkeypatch):
+    monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node: True)
+    token = _token(app, roleIds=["seed-user"], permissions=[PERM])
+    body = client.get(f"{BASE}/node-status?node=k3s-worker&token={token}").get_json()
+    assert body["allowed"] is True
+    assert body["available"] is True
+
+
+def test_node_status_message_names_the_permission(app, client, monkeypatch):
+    monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node: True)
+    token = _token(app, roleIds=["seed-user"], permissions=[])
+    body = client.get(f"{BASE}/node-status?node=k3s-worker&token={token}").get_json()
+    assert body["allowed"] is False
+    assert PERM in body["message"]
+
+
+def test_node_exec_refuses_without_permission(app):
+    from app.api.v1.terminals import node_stream
+
+    ws = _FakeWs()
+    token = _token(app, roleIds=["seed-user"])
+    with app.test_request_context(f"{BASE}/node-exec?node=k3s-worker&token={token}"):
+        node_stream(ws)
+    assert ws.closed == (1008, "forbidden")
+    assert PERM in ws.sent[0]
+
+
+def test_node_exec_passes_the_gate_with_permission(app, monkeypatch):
+    """권한이 있으면 게이트를 지나 다음 단계(클러스터 확인)까지 간다."""
+    from app.api.v1.terminals import node_stream
+
+    monkeypatch.setattr("app.kube_exec.in_cluster", lambda: False)
+    ws = _FakeWs()
+    token = _token(app, roleIds=["seed-user"], permissions=[PERM])
+    with app.test_request_context(f"{BASE}/node-exec?node=k3s-worker&token={token}"):
+        node_stream(ws)
+    assert ws.closed == (1011, "no-cluster")

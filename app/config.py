@@ -46,6 +46,9 @@ class Config:
     #: 노드 셸을 열 수 있는 역할 id. **비워 두면 아무도 열 수 없다** —
     #: 노드 root 권한이라 기본값을 여는 쪽으로 두지 않는다.
     NODE_SHELL_ROLE_IDS = _csv("NODE_SHELL_ROLE_IDS", "seed-admin")
+    #: 플랫폼 관리자 Role id — 권한 검사(`has_permission`)에서 관리자는 늘 모든 권한을 가진다.
+    #: 다른 서비스 ConfigMap 의 ADMIN_ROLE_ID 와 같은 값이어야 한다.
+    ADMIN_ROLE_ID = os.getenv("ADMIN_ROLE_ID", "seed-admin")
     #: debug Pod 가 Running 이 될 때까지 기다리는 시간(초).
     NODE_SHELL_START_TIMEOUT = int(os.getenv("NODE_SHELL_START_TIMEOUT", "60"))
     #: debug Pod 의 최대 수명(초). 서버가 지우지 못하고 죽어도 스스로 끝난다.

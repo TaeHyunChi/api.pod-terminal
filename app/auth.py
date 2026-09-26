@@ -11,6 +11,8 @@ import logging
 import jwt
 from flask import current_app, request
 
+from .errors import Forbidden
+
 log = logging.getLogger(__name__)
 
 
@@ -83,3 +85,28 @@ def _subject(token: str) -> str | None:
 
     subject = claims.get("sub")
     return subject if isinstance(subject, str) and subject else None
+
+
+def has_permission(key: str, claims: dict | None) -> bool:
+    """권한 키 검사 (api.role docs/permission-catalog.md 1절 공용 규칙).
+
+    AUTH_DISABLED → True, 관리자(`ADMIN_ROLE_ID`) → True(관리자는 늘 모든 권한),
+    아니면 JWT `permissions` 클레임(문자열 배열)에 key 가 있어야 한다.
+    이 서비스는 WebSocket 이라 `g` 대신 검증한 claims 를 직접 받는다.
+    """
+    if current_app.config.get("AUTH_DISABLED"):
+        return True
+    claims = claims or {}
+    role_ids = claims.get("roleIds") or []
+    if isinstance(role_ids, str):
+        role_ids = [role_ids]
+    if isinstance(role_ids, list) and current_app.config["ADMIN_ROLE_ID"] in role_ids:
+        return True
+    perms = claims.get("permissions")
+    return isinstance(perms, list) and key in perms
+
+
+def require_permission(key: str, claims: dict | None) -> None:
+    """HTTP 핸들러용 — 권한이 없으면 403 PERMISSION_REQUIRED 를 던진다."""
+    if not has_permission(key, claims):
+        raise Forbidden(f"이 작업에는 '{key}' 권한이 필요합니다.", code="PERMISSION_REQUIRED")

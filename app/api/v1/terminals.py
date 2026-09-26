@@ -29,7 +29,7 @@ import threading
 from flask import Blueprint, current_app, request
 
 from ... import kube_exec, node_shell
-from ...auth import claims_from_query, subject_from_query, subject_from_request
+from ...auth import claims_from_query, has_permission, subject_from_query, subject_from_request
 
 log = logging.getLogger(__name__)
 
@@ -91,12 +91,12 @@ def get_node_status():
     return {
         "node": node,
         "exists": exists,
-        # 이 사람이 노드 셸을 열 자격이 있는가(관리자 역할).
+        # 이 사람이 노드 셸을 열 자격이 있는가(NODE_SHELL_ROLE_IDS 역할 또는 권한).
         "allowed": allowed,
         "available": bool(exists and allowed),
         "message": (
             "" if exists and allowed
-            else ("노드를 찾을 수 없습니다." if not exists else "노드 셸은 관리자만 열 수 있습니다.")
+            else ("노드를 찾을 수 없습니다." if not exists else NODE_SHELL_DENIED_MESSAGE)
         ),
     }
 
@@ -297,20 +297,30 @@ def _handle(upstream, message: str) -> None:
 # --------------------------------------------------------------------------- #
 # 노드 셸 — 호스트에 붙는 터미널
 # --------------------------------------------------------------------------- #
+NODE_SHELL_PERMISSION = "pod-terminal.node-shell.access"
+NODE_SHELL_DENIED_MESSAGE = (
+    f"노드 셸은 관리자 또는 '{NODE_SHELL_PERMISSION}' 권한이 있어야 열 수 있습니다."
+)
+
+
 def _is_node_shell_admin(claims: dict) -> bool:
-    """노드 셸을 열 자격 — 관리자 역할이 있어야 한다.
+    """노드 셸을 열 자격 — `NODE_SHELL_ROLE_IDS` 역할이 있거나 `pod-terminal.node-shell.access`
+    권한이 있어야 한다(권한 카탈로그: 역할 교집합 검사는 유지하고 OR 권한 검사).
 
     Pod 터미널은 로그인한 사용자면 열 수 있지만 이것은 **노드 root 권한**이라
-    같은 기준을 쓸 수 없다. 역할 id 는 auth-service 가 토큰에 실어 준다.
+    같은 기준을 쓸 수 없다. 역할 id·permissions 는 auth-service 가 토큰에 실어 준다.
     """
     if current_app.config.get("AUTH_DISABLED"):
         return True
     required = set(current_app.config["NODE_SHELL_ROLE_IDS"])
     if not required:
-        # 목록이 비었으면 **아무도** 열 수 없다. 열어 두는 쪽이 위험하다.
+        # 목록이 비었으면 **아무도** 열 수 없다(권한 경로 포함 — 노드 셸 전체 차단 스위치).
+        # 열어 두는 쪽이 위험하다.
         return False
     role_ids = claims.get("roleIds")
-    return bool(required & set(role_ids)) if isinstance(role_ids, list) else False
+    if isinstance(role_ids, list) and required & set(role_ids):
+        return True
+    return has_permission(NODE_SHELL_PERMISSION, claims)
 
 
 def node_stream(ws) -> None:
@@ -324,7 +334,7 @@ def node_stream(ws) -> None:
         ws.close(1008, "unauthorized")
         return
     if not _is_node_shell_admin(claims):
-        _send(ws, {"type": "error", "message": "노드 셸은 관리자만 열 수 있습니다."})
+        _send(ws, {"type": "error", "message": NODE_SHELL_DENIED_MESSAGE})
         ws.close(1008, "forbidden")
         return
 
