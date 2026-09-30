@@ -28,7 +28,7 @@ import threading
 
 from flask import Blueprint, current_app, request
 
-from ... import kube_exec, node_shell
+from ... import granted, kube_exec, node_shell
 from ...auth import claims_from_query, has_permission, subject_from_query, subject_from_request
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ bp = Blueprint("terminals", __name__, url_prefix="/terminals")
 @bp.get("/namespaces")
 def allowed_namespaces():
     """터미널을 열 수 있는 네임스페이스 목록 — 화면이 고를 수 있게."""
-    return {"items": list(current_app.config["ALLOWED_NAMESPACES"])}
+    return {"items": granted.allowed_namespaces()}
 
 
 @bp.get("/cluster-identity")
@@ -120,7 +120,7 @@ def get_pod_status():
     pod = (request.args.get("pod") or request.args.get("podId") or "").strip()
     if not namespace or not pod:
         return {"code": "BAD_REQUEST", "message": "namespace 와 pod 는 필수입니다."}, 400
-    if namespace not in current_app.config["ALLOWED_NAMESPACES"]:
+    if not granted.is_allowed(namespace):
         # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
         return {"code": "FORBIDDEN", "message": "이 네임스페이스는 조회할 수 없습니다."}, 403
     if not kube_exec.in_cluster():
@@ -174,7 +174,7 @@ def _params() -> tuple[dict | None, str]:
     if not namespace or not pod:
         return None, "namespace 와 pod 는 필수입니다."
 
-    if namespace not in current_app.config["ALLOWED_NAMESPACES"]:
+    if not granted.is_allowed(namespace):
         # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
         return None, "이 네임스페이스에는 접속할 수 없습니다."
 

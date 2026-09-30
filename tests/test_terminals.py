@@ -268,3 +268,14 @@ def test_cluster_identity_requires_auth(app, client):
     app.config["AUTH_DISABLED"] = False
     app.config["JWT_SECRET"] = "test-secret"
     assert client.get("/api/v1/terminals/cluster-identity").status_code == 401
+
+
+def test_볼륨_권한_설정의_터미널_네임스페이스를_더한다(app, monkeypatch):
+    from app import granted
+
+    monkeypatch.setattr(granted, "granted", lambda: ["team-a", app.config["ALLOWED_NAMESPACES"][0]])
+    with app.app_context():
+        names = granted.allowed_namespaces()
+        assert names[: len(app.config["ALLOWED_NAMESPACES"])] == list(app.config["ALLOWED_NAMESPACES"])
+        assert names.count("team-a") == 1
+        assert granted.is_allowed("team-a") and not granted.is_allowed("kube-system")

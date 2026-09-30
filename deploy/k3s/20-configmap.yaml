@@ -25,6 +25,8 @@ data:
   # 셸을 띄울 수 있다. RBAC 도 이 네임스페이스들에만 준다(30-rbac.yaml).
   ALLOWED_NAMESPACES: >-
     oncloud-ai-platform,oncloud-ai-sandbox,oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-volume,oncloud-ai-model-serving,oncloud-ai-agent-runtime,oncloud-ai-agent-ecosystem,oncloud-ai-build,oncloud-ai-chroma,oncloud-ai-database,oncloud-ai-gitea,oncloud-ai-harbor,oncloud-ai-kong,oncloud-ai-rabbitmq,oncloud-ai-workflow-ecosystem
+  # 볼륨 권한 설정(관리자 메뉴)에서 '터미널' 권한을 켠 네임스페이스를 위 목록에 더한다(app/granted.py).
+  VOLUME_SERVICE_URL: http://volume-service.oncloud-ai-platform.svc.cluster.local:8215/api/v1
   # 노드 셸(호스트 터미널) — 노드 root 권한이라 관리자 역할만 열 수 있다.
   # 비워 두면 아무도 열 수 없다.
   NODE_SHELL_NAMESPACE: oncloud-ai-node-shell
