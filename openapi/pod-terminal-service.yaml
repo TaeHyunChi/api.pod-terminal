@@ -1,0 +1,465 @@
+openapi: 3.0.3
+info:
+  title: Pod Terminal Service API
+  version: 1.0.0
+  description: |
+    Pod 원격 터미널 API — 브라우저 WebSocket 을 k8s exec 로 중계한다.
+
+        브라우저 ── WS  /api/v1/terminals/exec?namespace=&pod=&container=&token=
+                         │
+                     k8s  WS  .../pods/{pod}/exec (v4.channel.k8s.io)
+
+    사용자는 아무것도 설치하지 않고 게이트웨이가 프로토콜을 바꿔 준다. 화면은 브라우저의 터미널
+    에뮬레이터가 그린다. 노드 셸(`/terminals/node-exec`)은 대상 노드에 특권 디버그 Pod 를 만들어
+    nsenter 로 호스트 셸에 붙고, 연결이 끝나면 Pod 를 지운다.
+
+    접근 범위:
+    - Pod 터미널: 로그인 사용자. 네임스페이스는 설정 `ALLOWED_NAMESPACES` + 볼륨 권한 설정에서
+      '터미널' 권한이 켜진 네임스페이스(volume-service, 30초 캐시)만 허용 — 그 밖은 어떤 네임스페이스가
+      있는지 알려 주지 않고 거절한다.
+    - 노드 셸: `NODE_SHELL_ROLE_IDS` 역할(기본 seed-admin) 또는 `pod-terminal.node-shell.access` 권한
+      (관리자는 늘 허용). 역할 목록이 비면 아무도 열 수 없다.
+
+    OpenAPI 3 는 WebSocket 을 온전히 표현하지 못한다 — `/terminals/exec`·`/terminals/node-exec` 는
+    HTTP Upgrade 요청으로 적고 프레임 규약은 설명과 `TerminalClientFrame`·`TerminalServerFrame` 스키마로 정리했다.
+    브라우저 WebSocket 은 헤더를 붙일 수 없어 JWT 를 `?token=` 쿼리로 받는다(접근 로그에 쿼리를 남기지 않는다).
+
+    게이트웨이: `api.oncloud-ai.co.kr` `/api/v1/terminals`.
+    (`/healthz`·`/readyz`·`/` 는 API prefix 밖이라 명세에 넣지 않는다.)
+servers:
+  - url: http://localhost:8247/api/v1
+    description: 로컬 개발 서버
+tags:
+  - name: terminals
+    description: Pod 터미널
+  - name: node-shell
+    description: 노드(호스트) 셸
+  - name: system
+    description: 표준 시스템 정보
+paths:
+  /terminals/namespaces:
+    get:
+      tags: [terminals]
+      operationId: listTerminalNamespaces
+      summary: 터미널을 열 수 있는 네임스페이스 목록
+      description: |
+        설정 `ALLOWED_NAMESPACES` 에 볼륨 권한 설정의 '터미널' 권한 네임스페이스를 더한 목록. 인증을 강제하지 않지만,
+        토큰(헤더 또는 `?token=`)이 있으면 그 토큰으로 volume-service 를 읽는다 — 읽지 못하면 설정 목록만 돌려준다.
+      parameters:
+        - $ref: '#/components/parameters/QueryToken'
+      responses:
+        '200':
+          description: 네임스페이스 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: string
+      security:
+        - {}
+        - bearerAuth: []
+  /terminals/cluster-identity:
+    get:
+      tags: [terminals]
+      operationId: getTerminalClusterIdentity
+      summary: 중계 대상 클러스터 식별 정보(노드 UID)
+      description: |
+        중계는 자기가 떠 있는 클러스터에만 exec 를 연다. 클러스터 관리 화면은 고른 클러스터의 노드 UID
+        (k8s-cluster-service `/clusters/{id}/identity`)와 이 목록이 겹칠 때만 터미널을 연다.
+        클러스터 밖이면 `available=false` 인 200.
+      parameters:
+        - $ref: '#/components/parameters/QueryToken'
+      responses:
+        '200':
+          description: 클러스터 식별 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClusterIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '502':
+          $ref: '#/components/responses/K8sUnavailable'
+      security:
+        - bearerAuth: []
+        - queryToken: []
+  /terminals/pod-status:
+    get:
+      tags: [terminals]
+      operationId: getTerminalPodStatus
+      summary: 터미널 열기 전 Pod 상태 확인
+      description: |
+        "접속해도 되는가" 판단(`available`)을 여기서 내린다. 터미널은 셸 프로세스를 새로 띄우는 일이라
+        **Running 인 Pod 에만** 열 수 있다(로그와 달리 Succeeded/Failed 는 안 됨). `containers` 는 실행 중인
+        일반 컨테이너만(init·종료된 것 제외). Pod 가 없으면 `exists=false` 인 200.
+      parameters:
+        - $ref: '#/components/parameters/Namespace'
+        - $ref: '#/components/parameters/Pod'
+        - $ref: '#/components/parameters/PodId'
+        - $ref: '#/components/parameters/QueryToken'
+      responses:
+        '200':
+          description: Pod 상태
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodStatus'
+        '400':
+          description: code BAD_REQUEST — namespace·pod 누락
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: code FORBIDDEN — 허용되지 않은 네임스페이스
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          $ref: '#/components/responses/K8sUnavailable'
+      security:
+        - bearerAuth: []
+        - queryToken: []
+  /terminals/node-status:
+    get:
+      tags: [node-shell]
+      operationId: getNodeShellStatus
+      summary: 노드 셸 열기 전 확인
+      description: |
+        있는 노드인지, 이 사용자가 노드 셸을 열 자격이 있는지 미리 알려 준다(화면이 버튼을 잠글 수 있게).
+        클러스터 밖이면 `exists=false`·`available=false`. 토큰은 `?token=` 을 먼저 보고 없으면 Authorization 헤더.
+      parameters:
+        - name: node
+          in: query
+          required: true
+          description: 노드 이름
+          schema:
+            type: string
+        - $ref: '#/components/parameters/QueryToken'
+      responses:
+        '200':
+          description: 노드 셸 가능 여부
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeShellStatus'
+        '400':
+          description: code INVALID_PARAMETER — node 누락
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security:
+        - queryToken: []
+        - bearerAuth: []
+  /terminals/exec:
+    get:
+      tags: [terminals]
+      operationId: openPodTerminal
+      summary: Pod 터미널(WebSocket)
+      description: |
+        **WebSocket 엔드포인트** — `ws(s)://<host>/api/v1/terminals/exec?namespace=&pod=&container=&token=` 로 접속한다
+        (`Connection: Upgrade`, `Upgrade: websocket`). tty 로 셸을 띄우며 stdout·stderr 는 합쳐서 보낸다.
+
+        클라이언트 → 서버(`TerminalClientFrame`, JSON 텍스트 한 줄; 해석 못 하는 프레임은 버림):
+
+            {"type":"input","data":"ls\n"}          키 입력(stdin)
+            {"type":"resize","cols":120,"rows":30}  터미널 크기(기본 80x24)
+
+        서버 → 클라이언트(`TerminalServerFrame`):
+
+            {"type":"ready"}                 exec 연결 수립
+            {"type":"output","data":"..."}   stdout/stderr
+            {"type":"ping"}                  유휴 연결 유지(WS_PING_SECONDS, 기본 25초)
+            {"type":"exit","message":""}     셸 종료 — 빈 문자열이면 정상 종료, 아니면 사유
+            {"type":"error","message":"..."} 오류
+
+        닫기 코드: 1008 `unauthorized`(토큰 무효 — 프레임 없이 닫음), 1008 `bad-request`(파라미터 누락·허용되지 않은
+        네임스페이스 — error 뒤), 1011 `no-cluster`(클러스터 밖), 1011 `exec-failed`(k8s exec 연결 실패).
+      parameters:
+        - $ref: '#/components/parameters/Namespace'
+        - $ref: '#/components/parameters/Pod'
+        - $ref: '#/components/parameters/PodId'
+        - name: container
+          in: query
+          required: false
+          description: 컨테이너 이름(생략하면 k8s 기본 컨테이너)
+          schema:
+            type: string
+        - $ref: '#/components/parameters/WsToken'
+        - $ref: '#/components/parameters/UpgradeHeader'
+        - $ref: '#/components/parameters/ConnectionHeader'
+      responses:
+        '101':
+          $ref: '#/components/responses/SwitchingProtocols'
+      security:
+        - queryToken: []
+  /terminals/node-exec:
+    get:
+      tags: [node-shell]
+      operationId: openNodeShell
+      summary: 노드 셸(WebSocket)
+      description: |
+        **WebSocket 엔드포인트** — `ws(s)://<host>/api/v1/terminals/node-exec?node=&token=`.
+        붙기 전에 대상 노드에 특권 디버그 Pod 를 `NODE_SHELL_NAMESPACE` 에 만들고(준비 중 안내를 output 프레임으로 보냄),
+        Running 이 되면 nsenter 로 호스트 셸에 exec 한다. 연결이 끝나면 Pod 를 반드시 지운다. 열고 닫을 때 노드·사용자·Pod 를 로그에 남긴다.
+
+        프레임 규약은 `/terminals/exec` 와 같다(`TerminalClientFrame`·`TerminalServerFrame`).
+
+        닫기 코드: 1008 `unauthorized`(토큰 무효), 1008 `forbidden`(노드 셸 자격 없음 — error 뒤),
+        1008 `bad-request`(node 누락), 1011 `no-cluster`, 1011 `node-shell-failed`(노드 없음·Pod 생성/기동 실패·exec 실패).
+      parameters:
+        - name: node
+          in: query
+          required: true
+          description: 노드 이름
+          schema:
+            type: string
+        - $ref: '#/components/parameters/WsToken'
+        - $ref: '#/components/parameters/UpgradeHeader'
+        - $ref: '#/components/parameters/ConnectionHeader'
+      responses:
+        '101':
+          $ref: '#/components/responses/SwitchingProtocols'
+      security:
+        - queryToken: []
+  /system/info:
+    get:
+      tags: [system]
+      operationId: getSystemInfo
+      x-internal: true
+      summary: 표준 시스템 정보 — 내부용
+      description: 내부용 — 플랫폼 컨트롤 패널 fanout 대상. `dependsOn` 은 설정의 클러스터 내부 서비스 URL 에서 자동 추출한다.
+      responses:
+        '200':
+          description: 시스템 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+      security: []
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    queryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: 플랫폼 JWT 를 쿼리로 — WebSocket 용(HTTP 엔드포인트는 Authorization 헤더 권장)
+  parameters:
+    Namespace:
+      name: namespace
+      in: query
+      required: true
+      schema:
+        type: string
+    Pod:
+      name: pod
+      in: query
+      required: true
+      description: Pod 이름(별칭 podId)
+      schema:
+        type: string
+    PodId:
+      name: podId
+      in: query
+      required: false
+      description: pod 의 별칭(pod 가 없을 때만 쓴다)
+      schema:
+        type: string
+    QueryToken:
+      name: token
+      in: query
+      required: false
+      description: Authorization 헤더 대신 쓰는 JWT
+      schema:
+        type: string
+    WsToken:
+      name: token
+      in: query
+      required: true
+      description: 플랫폼 JWT(브라우저 WebSocket 은 헤더를 못 붙인다)
+      schema:
+        type: string
+    UpgradeHeader:
+      name: Upgrade
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [websocket]
+    ConnectionHeader:
+      name: Connection
+      in: header
+      required: true
+      schema:
+        type: string
+        example: Upgrade
+  responses:
+    Unauthorized:
+      description: code UNAUTHORIZED — 토큰 없음/무효
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    K8sUnavailable:
+      description: code K8S_UNAVAILABLE — 클러스터 밖이거나 k8s API 호출 실패·권한 없음
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SwitchingProtocols:
+      description: |
+        Switching Protocols — WebSocket 수립. 이후 클라이언트는 `TerminalClientFrame`, 서버는 `TerminalServerFrame`
+        JSON 텍스트 프레임을 주고받는다. 인증·파라미터 오류도 업그레이드 뒤 닫기 코드로 알린다(HTTP 4xx 를 내지 않는다).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TerminalServerFrame'
+  schemas:
+    ClusterIdentity:
+      type: object
+      required: [available, nodeUids, message]
+      properties:
+        available:
+          type: boolean
+        nodeUids:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+    PodStatus:
+      type: object
+      required: [name, namespace, exists, phase, ready, startedAt, message, available, containers]
+      properties:
+        name:
+          type: string
+        namespace:
+          type: string
+        exists:
+          type: boolean
+        phase:
+          type: string
+          description: Pending / Running / Succeeded / Failed / Unknown (없으면 빈 문자열)
+        ready:
+          type: boolean
+        startedAt:
+          type: string
+          description: Pod startTime(RFC 3339, 없으면 빈 문자열)
+        message:
+          type: string
+          description: 컨테이너 대기/종료 사유, Running 이 아니면 안내 문구
+        available:
+          type: boolean
+          description: 터미널을 열 수 있는지(phase == Running)
+        containers:
+          type: array
+          description: 실행 중인 일반 컨테이너만
+          items:
+            $ref: '#/components/schemas/PodContainer'
+    PodContainer:
+      type: object
+      required: [name, image, init, ready, state, restarts]
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        init:
+          type: boolean
+        ready:
+          type: boolean
+        state:
+          type: string
+          enum: [running, terminated, waiting]
+        restarts:
+          type: integer
+    NodeShellStatus:
+      type: object
+      required: [node, exists, allowed, available, message]
+      properties:
+        node:
+          type: string
+        exists:
+          type: boolean
+        allowed:
+          type: boolean
+          description: 이 사용자가 노드 셸을 열 자격이 있는지(역할 또는 pod-terminal.node-shell.access 권한)
+        available:
+          type: boolean
+          description: exists && allowed
+        message:
+          type: string
+          description: 열 수 없는 사유(가능하면 빈 문자열)
+    TerminalClientFrame:
+      type: object
+      description: 클라이언트 → 서버 WebSocket 프레임(JSON 텍스트 한 개)
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [input, resize]
+        data:
+          type: string
+          description: input — stdin 으로 보낼 문자열
+        cols:
+          type: integer
+          default: 80
+          description: resize
+        rows:
+          type: integer
+          default: 24
+          description: resize
+    TerminalServerFrame:
+      type: object
+      description: 서버 → 클라이언트 WebSocket 프레임(JSON 텍스트 한 개)
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [ready, output, ping, exit, error]
+        data:
+          type: string
+          description: output — stdout/stderr 합친 출력
+        message:
+          type: string
+          description: exit — 빈 문자열이면 정상 종료 / error — 사유
+    SystemInfo:
+      type: object
+      required: [service, status, dependsOn]
+      properties:
+        service:
+          type: string
+          example: pod-terminal-service
+        status:
+          type: string
+          example: ok
+        dependsOn:
+          type: array
+          items:
+            type: string
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: FORBIDDEN
+        message:
+          type: string
