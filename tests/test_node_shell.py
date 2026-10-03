@@ -266,3 +266,16 @@ def test_node_exec_passes_the_gate_with_permission(app, monkeypatch):
     with app.test_request_context(f"{BASE}/node-exec?node=k3s-worker&token={token}"):
         node_stream(ws)
     assert ws.closed == (1011, "no-cluster")
+
+
+# --------------------------------------------------------------------------- #
+# 허용 네임스페이스 목록 — 로그인 필요
+# --------------------------------------------------------------------------- #
+def test_allowed_namespaces_require_login(app, client):
+    assert client.get(f"{BASE}/namespaces").status_code == 401
+    bad = {"Authorization": "Bearer not-a-jwt"}
+    assert client.get(f"{BASE}/namespaces", headers=bad).status_code == 401
+
+    res = client.get(f"{BASE}/namespaces", headers={"Authorization": f"Bearer {_token(app)}"})
+    assert res.status_code == 200
+    assert "oncloud-ai-devops-service" in res.get_json()["items"]

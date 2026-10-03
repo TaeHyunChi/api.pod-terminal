@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pod Terminal Service API
-  version: 1.0.0
+  version: 1.0.1
   description: |
     Pod 원격 터미널 API — 브라우저 WebSocket 을 k8s exec 로 중계한다.
 
@@ -43,8 +43,9 @@ paths:
       operationId: listTerminalNamespaces
       summary: 터미널을 열 수 있는 네임스페이스 목록
       description: |
-        설정 `ALLOWED_NAMESPACES` 에 볼륨 권한 설정의 '터미널' 권한 네임스페이스를 더한 목록. 인증을 강제하지 않지만,
-        토큰(헤더 또는 `?token=`)이 있으면 그 토큰으로 volume-service 를 읽는다 — 읽지 못하면 설정 목록만 돌려준다.
+        설정 `ALLOWED_NAMESPACES` 에 볼륨 권한 설정의 '터미널' 권한 네임스페이스를 더한 목록. 로그인이 필요하다
+        (`Authorization: Bearer` 헤더를 먼저 보고 없으면 `?token=` 쿼리). 그 토큰으로 volume-service 를 읽는다 —
+        읽지 못하면 설정 목록만 돌려준다.
       parameters:
         - $ref: '#/components/parameters/QueryToken'
       responses:
@@ -60,9 +61,15 @@ paths:
                     type: array
                     items:
                       type: string
+        '401':
+          description: code UNAUTHORIZED — 토큰 없음/무효
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
       security:
-        - {}
         - bearerAuth: []
+        - queryToken: []
   /terminals/cluster-identity:
     get:
       tags: [terminals]
