@@ -251,7 +251,11 @@ def _pump_to_browser(app, upstream, ws, done: threading.Event) -> None:
                     if text:
                         _send(ws, {"type": "output", "data": text})
                 elif channel == kube_exec.CH_ERROR:
-                    _send(ws, {"type": "exit", "message": kube_exec.exit_message(text)})
+                    message = kube_exec.exit_message(text)
+                    frame = {"type": "exit", "message": message}
+                    if code := kube_exec.exit_code(message):
+                        frame["code"] = code  # 셸 없는 컨테이너 — 화면이 "터미널 미지원" 으로 그린다
+                    _send(ws, frame)
                     break
                 elif channel == -1:
                     break  # 빈 프레임 = 상대가 닫았다

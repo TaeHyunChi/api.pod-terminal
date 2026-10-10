@@ -282,3 +282,16 @@ def test_볼륨_권한_설정의_터미널_네임스페이스를_더한다(app, 
         assert names[: len(app.config["ALLOWED_NAMESPACES"])] == list(app.config["ALLOWED_NAMESPACES"])
         assert names.count("team-a") == 1
         assert granted.is_allowed("team-a") and not granted.is_allowed("kube-system")
+
+
+def test_exit_code_marks_containers_without_a_shell():
+    """distroless 등 /bin/sh 가 없는 컨테이너 — 화면이 '터미널 미지원' 으로 그리도록 코드를 붙인다."""
+    message = (
+        'Internal error occurred: error executing command in container: failed to exec in container: '
+        'failed to start exec "9f8b": OCI runtime exec failed: exec failed: unable to start container '
+        'process: exec: "/bin/sh": stat /bin/sh: no such file or directory'
+    )
+    assert kube_exec.exit_code(message) == "SHELL_NOT_FOUND"
+    assert kube_exec.exit_code('exec: "/bin/sh": executable file not found in $PATH') == "SHELL_NOT_FOUND"
+    assert kube_exec.exit_code("command terminated with non-zero exit code: exit code 1") == ""
+    assert kube_exec.exit_code("") == ""

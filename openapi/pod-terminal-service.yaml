@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pod Terminal Service API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Pod 원격 터미널 API — 브라우저 WebSocket 을 k8s exec 로 중계한다.
 
@@ -192,6 +192,8 @@ paths:
             {"type":"output","data":"..."}   stdout/stderr
             {"type":"ping"}                  유휴 연결 유지(WS_PING_SECONDS, 기본 25초)
             {"type":"exit","message":""}     셸 종료 — 빈 문자열이면 정상 종료, 아니면 사유
+            {"type":"exit","message":"...","code":"SHELL_NOT_FOUND"}
+                                             컨테이너에 /bin/sh 가 없다(distroless 등) — 화면은 "터미널 미지원"
             {"type":"error","message":"..."} 오류
 
         닫기 코드: 1008 `unauthorized`(토큰 무효 — 프레임 없이 닫음), 1008 `bad-request`(파라미터 누락·허용되지 않은
@@ -469,6 +471,10 @@ components:
         message:
           type: string
           description: exit — 빈 문자열이면 정상 종료 / error — 사유
+        code:
+          type: string
+          enum: [SHELL_NOT_FOUND]
+          description: exit — 셸 실행 파일이 없어 exec 가 실패했다(1.2.0). 그 밖에는 없다.
     SystemInfo:
       type: object
       required: [service, status, dependsOn]

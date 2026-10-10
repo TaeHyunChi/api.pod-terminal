@@ -259,6 +259,21 @@ def read_frame(data: bytes | str) -> tuple[int, str]:
     return data[0], data[1:].decode("utf-8", errors="replace")
 
 
+#: 셸이 없는 컨테이너(distroless·scratch 등)에서 exec 가 실패할 때 k8s 가 주는 사유의 조각.
+_SHELL_MISSING_HINTS = ("no such file or directory", "executable file not found", "not found in $path")
+
+
+def exit_code(message: str) -> str:
+    """종료 사유 → 화면이 분기할 코드. 셸 실행 파일이 없으면 `SHELL_NOT_FOUND`, 그 밖은 빈 문자열.
+
+    k8s 는 이 경우를 별도 코드로 주지 않고 런타임 오류 문장(`exec: "/bin/sh": stat /bin/sh: no such file or
+    directory`)만 준다 — 그래서 문장에서 알아본다. 화면은 이 코드를 받으면 오류 원문 대신
+    "터미널 기능을 지원하지 않습니다." 를 보여 준다.
+    """
+    text = (message or "").lower()
+    return "SHELL_NOT_FOUND" if "/bin/sh" in text and any(h in text for h in _SHELL_MISSING_HINTS) else ""
+
+
 def exit_message(payload: str) -> str:
     """error 채널(3)의 JSON → 사람이 읽을 한 줄.
 
