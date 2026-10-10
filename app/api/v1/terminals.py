@@ -28,12 +28,50 @@ import threading
 
 from flask import Blueprint, current_app, request
 
-from ... import granted, kube_exec, node_shell
-from ...auth import claims_from_query, has_permission, subject_from_query, subject_from_request
+from ... import cluster_access, granted, kube_exec, node_shell
+from ...auth import (
+    can_reach_other_clusters,
+    claims_from_query,
+    has_permission,
+    subject_from_query,
+    subject_from_request,
+)
 
 log = logging.getLogger(__name__)
 
 bp = Blueprint("terminals", __name__, url_prefix="/terminals")
+
+
+def _access_for(
+    namespace: str | None, *, require_cluster: bool = True
+) -> tuple[cluster_access.Access | None, tuple[str, str, int] | None]:
+    """`?clusterId=` → (접속 정보, 오류(code, message, http)).
+
+    - clusterId 가 없거나 이 플랫폼 클러스터면: 예전 규칙 그대로(네임스페이스 허용 목록 · in-cluster).
+    - 다른 클러스터면: 관리자·클러스터 관리 권한만, 그 클러스터의 kubeconfig 로. 허용 목록은 이 플랫폼
+      클러스터의 규칙이라 적용하지 않는다. `namespace` 가 None 이면(노드 작업) 허용 목록을 보지 않는다.
+    """
+    cluster_id = (request.args.get("clusterId") or "").strip()
+    access = None
+    if not cluster_access.is_local_id(cluster_id):
+        if not can_reach_other_clusters(claims_from_query()):
+            return None, (
+                "FORBIDDEN",
+                "다른 클러스터의 터미널은 관리자 또는 클러스터 관리 권한이 있어야 열 수 있습니다.",
+                403,
+            )
+        try:
+            access = cluster_access.resolve(cluster_id)
+        except cluster_access.ClusterAccessError as exc:
+            return None, ("K8S_UNAVAILABLE", str(exc), 502)
+        if not access.local:
+            return access, None
+    if namespace is not None and not granted.is_allowed(namespace):
+        # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
+        return None, ("FORBIDDEN", "이 네임스페이스는 조회할 수 없습니다.", 403)
+    if require_cluster and not kube_exec.in_cluster():
+        return None, ("K8S_UNAVAILABLE", "클러스터 밖에서는 터미널을 열 수 없습니다.", 502)
+    return access or cluster_access.local_access(), None
 
 
 @bp.get("/namespaces")
@@ -58,16 +96,22 @@ def get_cluster_identity():
     """
     if not subject_from_request():
         return {"code": "UNAUTHORIZED", "message": "인증이 필요합니다."}, 401
-    if not kube_exec.in_cluster():
+    # `?clusterId=` 를 주면 그 클러스터에 붙어 노드 UID 를 읽는다 — 화면은 고른 클러스터와 같은지
+    # 대조해 터미널을 연다(다른 클러스터도 이제 그 kubeconfig 로 붙는다). 권한이 없으면 열지 않는다.
+    access, error = _access_for(None, require_cluster=False)
+    if error:
+        code, message, _http = error
+        return {"available": False, "nodeUids": [], "message": message, "code": code}
+    if access.local and not kube_exec.in_cluster():
         return {
             "available": False, "nodeUids": [],
             "message": "클러스터 밖에서는 터미널을 열 수 없습니다.",
         }
     try:
-        uids = node_shell.node_uids()
+        uids = node_shell.node_uids(access=access)
     except kube_exec.ExecError as exc:
         return {"code": "K8S_UNAVAILABLE", "message": str(exc)}, 502
-    return {"available": True, "nodeUids": uids, "message": ""}
+    return {"available": True, "nodeUids": uids, "message": "", "remote": not access.local}
 
 
 @bp.get("/node-status")
@@ -86,13 +130,11 @@ def get_node_status():
         return {"code": "INVALID_PARAMETER", "message": "node 파라미터가 필요합니다."}, 400
 
     allowed = _is_node_shell_admin(claims)
-    if not kube_exec.in_cluster():
-        return {
-            "node": node, "exists": False, "allowed": allowed, "available": False,
-            "message": "클러스터 밖에서는 노드 셸을 열 수 없습니다.",
-        }
+    access, error = _access_for(None)
+    if error:
+        return {"node": node, "exists": False, "allowed": allowed, "available": False, "message": error[1]}
 
-    exists = node_shell.node_exists(node)
+    exists = node_shell.node_exists(node, access=access)
     return {
         "node": node,
         "exists": exists,
@@ -125,14 +167,15 @@ def get_pod_status():
     pod = (request.args.get("pod") or request.args.get("podId") or "").strip()
     if not namespace or not pod:
         return {"code": "BAD_REQUEST", "message": "namespace 와 pod 는 필수입니다."}, 400
-    if not granted.is_allowed(namespace):
-        # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
-        return {"code": "FORBIDDEN", "message": "이 네임스페이스는 조회할 수 없습니다."}, 403
-    if not kube_exec.in_cluster():
-        return {"code": "K8S_UNAVAILABLE", "message": "클러스터 밖에서는 조회할 수 없습니다."}, 502
+    access, error = _access_for(namespace)
+    if error:
+        code, message, http = error
+        if code == "K8S_UNAVAILABLE" and message.startswith("클러스터 밖"):
+            message = "클러스터 밖에서는 조회할 수 없습니다."
+        return {"code": code, "message": message}, http
 
     try:
-        status = kube_exec.pod_status(namespace, pod)
+        status = kube_exec.pod_status(namespace, pod, access=access)
     except kube_exec.ExecError as exc:
         return {"code": "K8S_UNAVAILABLE", "message": str(exc)}, 502
 
@@ -179,14 +222,18 @@ def _params() -> tuple[dict | None, str]:
     if not namespace or not pod:
         return None, "namespace 와 pod 는 필수입니다."
 
-    if not granted.is_allowed(namespace):
-        # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
-        return None, "이 네임스페이스에는 접속할 수 없습니다."
+    access, error = _access_for(namespace, require_cluster=False)
+    if error:
+        code, message, _http = error
+        if code == "FORBIDDEN" and "네임스페이스" in message:
+            return None, "이 네임스페이스에는 접속할 수 없습니다."
+        return None, message
 
     return {
         "namespace": namespace,
         "pod": pod,
         "container": (request.args.get("container") or "").strip(),
+        "access": access,
     }, ""
 
 
@@ -232,14 +279,14 @@ def stream(ws) -> None:
         ws.close(1008, "bad-request")
         return
 
-    if not kube_exec.in_cluster():
+    if params["access"].local and not kube_exec.in_cluster():
         _send(ws, {"type": "error", "message": "클러스터 밖에서는 터미널을 열 수 없습니다."})
         ws.close(1011, "no-cluster")
         return
 
     try:
         upstream = kube_exec.connect(
-            params["namespace"], params["pod"], container=params["container"]
+            params["namespace"], params["pod"], container=params["container"], access=params["access"]
         )
     except kube_exec.ExecError as exc:
         _send(ws, {"type": "error", "message": str(exc)})
@@ -247,7 +294,10 @@ def stream(ws) -> None:
         return
 
     _send(ws, {"type": "ready"})
-    log.info("터미널 열림: %s/%s", params["namespace"], params["pod"])
+    log.info(
+        "터미널 열림: cluster=%s %s/%s",
+        params["access"].cluster_id or "local", params["namespace"], params["pod"],
+    )
 
     done = threading.Event()
     reader = threading.Thread(
@@ -349,7 +399,12 @@ def node_stream(ws) -> None:
         ws.close(1008, "bad-request")
         return
 
-    if not kube_exec.in_cluster():
+    access, error = _access_for(None, require_cluster=False)
+    if error:
+        _send(ws, {"type": "error", "message": error[1]})
+        ws.close(1008, "forbidden")
+        return
+    if access.local and not kube_exec.in_cluster():
         _send(ws, {"type": "error", "message": "클러스터 밖에서는 노드 셸을 열 수 없습니다."})
         ws.close(1011, "no-cluster")
         return
@@ -357,27 +412,31 @@ def node_stream(ws) -> None:
     user_id = claims.get("sub") or "unknown"
     pod_name = ""
     try:
-        if not node_shell.node_exists(node):
+        if not node_shell.node_exists(node, access=access):
             raise kube_exec.ExecError(f"노드 '{node}' 를 찾을 수 없습니다.")
         # 특권 Pod 를 만드는 데 몇 초 걸린다 — 화면이 멈춘 것처럼 보이지 않게 알린다.
         _send(ws, {"type": "output", "data": f"[{node}] 노드 셸을 준비하는 중...\r\n"})
-        pod_name = node_shell.create_debug_pod(node, user_id)
-        node_shell.wait_running(pod_name, current_app.config["NODE_SHELL_START_TIMEOUT"])
+        pod_name = node_shell.create_debug_pod(node, user_id, access=access)
+        node_shell.wait_running(pod_name, current_app.config["NODE_SHELL_START_TIMEOUT"], access=access)
         upstream = kube_exec.connect(
             current_app.config["NODE_SHELL_NAMESPACE"],
             pod_name,
             command=node_shell.NSENTER_COMMAND,
+            access=access,
         )
     except kube_exec.ExecError as exc:
         if pod_name:
-            node_shell.delete_debug_pod(pod_name)
+            node_shell.delete_debug_pod(pod_name, access=access)
         _send(ws, {"type": "error", "message": str(exc)})
         ws.close(1011, "node-shell-failed")
         return
 
     _send(ws, {"type": "ready"})
     # 호스트 셸은 흔적이 남아야 한다 — 누가 언제 어느 노드에 열었는지.
-    log.warning("노드 셸 열림: node=%s user=%s pod=%s", node, user_id, pod_name)
+    log.warning(
+        "노드 셸 열림: cluster=%s node=%s user=%s pod=%s",
+        access.cluster_id or "local", node, user_id, pod_name,
+    )
 
     done = threading.Event()
     reader = threading.Thread(
@@ -405,5 +464,5 @@ def node_stream(ws) -> None:
         except Exception:  # noqa: BLE001
             pass
         # 특권 Pod 를 반드시 지운다. 남으면 그 노드에 root 컨테이너가 방치된다.
-        node_shell.delete_debug_pod(pod_name)
+        node_shell.delete_debug_pod(pod_name, access=access)
         log.warning("노드 셸 닫힘: node=%s user=%s pod=%s", node, user_id, pod_name)

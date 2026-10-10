@@ -27,11 +27,14 @@ import urllib.request
 
 from flask import current_app
 
-log = logging.getLogger(__name__)
+from .cluster_access import (  # noqa: F401 - 테스트·node_shell 이 쓴다
+    CA_PATH,
+    TOKEN_PATH,
+    Access,
+    local_access,
+)
 
-_SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount"
-TOKEN_PATH = f"{_SA_DIR}/token"
-CA_PATH = f"{_SA_DIR}/ca.crt"
+log = logging.getLogger(__name__)
 
 #: 채널 번호. k8s 의 v4 스트림 규약이다.
 CH_STDIN = 0
@@ -97,7 +100,7 @@ def _containers(body: dict) -> list[dict]:
     return containers
 
 
-def pod_status(namespace: str, pod: str) -> dict | None:
+def pod_status(namespace: str, pod: str, access: Access | None = None) -> dict | None:
     """Pod 한 개의 현재 상태. 없으면(삭제됐으면) None.
 
     터미널을 열기 전의 **상태 확인**에 쓴다 — 이미 사라진 Pod 에 exec 를 열려고
@@ -108,10 +111,9 @@ def pod_status(namespace: str, pod: str) -> dict | None:
         f"/api/v1/namespaces/{urllib.parse.quote(namespace)}"
         f"/pods/{urllib.parse.quote(pod)}"
     )
-    api = current_app.config["K8S_API"].rstrip("/")
-    request = urllib.request.Request(f"{api}{path}", method="GET")  # noqa: S310
-    request.add_header("Authorization", f"Bearer {_token()}")
-    context = ssl.create_default_context(cafile=CA_PATH)
+    access = access or local_access()
+    request = access.request(path)
+    context = access.ssl_context()
     try:
         with urllib.request.urlopen(  # noqa: S310
             request, timeout=current_app.config["K8S_CONNECT_TIMEOUT"], context=context
@@ -166,7 +168,10 @@ def exec_url(namespace: str, pod: str, *, container: str, command: list[str]) ->
     return f"{path}?{urllib.parse.urlencode(query)}"
 
 
-def connect(namespace: str, pod: str, *, container: str = "", command: list[str] | None = None):
+def connect(
+    namespace: str, pod: str, *, container: str = "", command: list[str] | None = None,
+    access: Access | None = None,
+):
     """컨테이너에 붙어 `websocket.WebSocket` 을 돌려준다.
 
     호출측이 다 쓰면 `close()` 한다. 붙지 못하면 `ExecError` 를 던진다.
@@ -176,16 +181,17 @@ def connect(namespace: str, pod: str, *, container: str = "", command: list[str]
     except ImportError as exc:  # pragma: no cover - 운영 이미지에는 항상 있다
         raise ExecError("터미널 의존성이 설치되지 않았습니다.") from exc
 
-    api = current_app.config["K8S_API"].rstrip("/")
-    url = api.replace("https://", "wss://").replace("http://", "ws://")
+    access = access or local_access()
+    url = access.server.replace("https://", "wss://").replace("http://", "ws://")
     url += exec_url(namespace, pod, container=container, command=command or default_command())
 
     try:
         conn = websocket.create_connection(
             url,
-            header=[f"Authorization: Bearer {_token()}"],
+            header=[f"{k}: {v}" for k, v in access.auth_headers().items()],
             subprotocols=[SUBPROTOCOL],
-            sslopt={"ca_certs": CA_PATH, "cert_reqs": ssl.CERT_REQUIRED},
+            # 다른 클러스터는 그 kubeconfig 의 CA·클라이언트 인증서가 담긴 컨텍스트로 붙는다.
+            sslopt={"context": access.ssl_context(), "cert_reqs": ssl.CERT_REQUIRED},
             timeout=current_app.config["K8S_CONNECT_TIMEOUT"],
             enable_multithread=True,
         )

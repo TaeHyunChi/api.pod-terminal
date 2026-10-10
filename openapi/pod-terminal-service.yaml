@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pod Terminal Service API
-  version: 1.0.1
+  version: 1.1.0
   description: |
     Pod 원격 터미널 API — 브라우저 WebSocket 을 k8s exec 로 중계한다.
 
@@ -80,6 +80,7 @@ paths:
         (k8s-cluster-service `/clusters/{id}/identity`)와 이 목록이 겹칠 때만 터미널을 연다.
         클러스터 밖이면 `available=false` 인 200.
       parameters:
+        - $ref: '#/components/parameters/ClusterId'
         - $ref: '#/components/parameters/QueryToken'
       responses:
         '200':
@@ -107,6 +108,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Namespace'
         - $ref: '#/components/parameters/Pod'
+        - $ref: '#/components/parameters/ClusterId'
         - $ref: '#/components/parameters/PodId'
         - $ref: '#/components/parameters/QueryToken'
       responses:
@@ -144,6 +146,7 @@ paths:
         있는 노드인지, 이 사용자가 노드 셸을 열 자격이 있는지 미리 알려 준다(화면이 버튼을 잠글 수 있게).
         클러스터 밖이면 `exists=false`·`available=false`. 토큰은 `?token=` 을 먼저 보고 없으면 Authorization 헤더.
       parameters:
+        - $ref: '#/components/parameters/ClusterId'
         - name: node
           in: query
           required: true
@@ -196,6 +199,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Namespace'
         - $ref: '#/components/parameters/Pod'
+        - $ref: '#/components/parameters/ClusterId'
         - $ref: '#/components/parameters/PodId'
         - name: container
           in: query
@@ -226,6 +230,7 @@ paths:
         닫기 코드: 1008 `unauthorized`(토큰 무효), 1008 `forbidden`(노드 셸 자격 없음 — error 뒤),
         1008 `bad-request`(node 누락), 1011 `no-cluster`, 1011 `node-shell-failed`(노드 없음·Pod 생성/기동 실패·exec 실패).
       parameters:
+        - $ref: '#/components/parameters/ClusterId'
         - name: node
           in: query
           required: true
@@ -269,6 +274,17 @@ components:
       name: token
       description: 플랫폼 JWT 를 쿼리로 — WebSocket 용(HTTP 엔드포인트는 Authorization 헤더 권장)
   parameters:
+    ClusterId:
+      name: clusterId
+      in: query
+      required: false
+      description: |
+        클러스터 관리의 클러스터 id. 없거나 이 플랫폼 클러스터면 예전 그대로(ALLOWED_NAMESPACES · ServiceAccount).
+        다른 클러스터면 관리자 또는 k8s-cluster.resource.manage·k8s-cluster.cluster.manage 권한만, 그 클러스터의
+        kubeconfig(k8s-cluster-service 서비스 전용 /credentials)로 붙고 네임스페이스 허용 목록은 적용하지 않는다.
+        노드 셸은 여기에 더해 노드 셸 자격이 필요하고, 그 클러스터에 노드 셸 네임스페이스가 없으면 만든다.
+      schema:
+        type: string
     Namespace:
       name: namespace
       in: query
@@ -351,6 +367,12 @@ components:
             type: string
         message:
           type: string
+        remote:
+          type: boolean
+          description: clusterId 가 다른 클러스터여서 그 kubeconfig 로 붙었는가
+        code:
+          type: string
+          description: 열 수 없을 때의 사유 코드(FORBIDDEN · K8S_UNAVAILABLE)
     PodStatus:
       type: object
       required: [name, namespace, exists, phase, ready, startedAt, message, available, containers]

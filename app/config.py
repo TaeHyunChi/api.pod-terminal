@@ -34,6 +34,20 @@ class Config:
     )
 
 
+    # --- 다른 클러스터(클러스터 관리에 추가된 것) — app/cluster_access.py ---
+    #: kubeconfig 원문을 받는 곳(서비스 토큰 전용 /clusters/{id}/credentials). 비우면 이 클러스터만.
+    K8S_CLUSTER_SERVICE_URL = os.getenv(
+        "K8S_CLUSTER_SERVICE_URL", "http://k8s-cluster-service.oncloud-ai-platform.svc.cluster.local:8209/api/v1"
+    ).rstrip("/")
+    #: 이 플랫폼 클러스터로 볼 클러스터 id·API 서버 주소(노드 주소로 등록된 경우) — ServiceAccount 로 붙는다.
+    LOCAL_CLUSTER_IDS = tuple(_csv("LOCAL_CLUSTER_IDS", ""))
+    LOCAL_API_SERVER_URLS = tuple(_csv("LOCAL_API_SERVER_URLS", ""))
+    #: 다른 클러스터의 Pod 터미널을 열 수 있는 권한 키(관리자는 늘 가능).
+    #: 노드 셸은 여기에 더해 노드 셸 자격도 필요하다.
+    REMOTE_CLUSTER_PERMISSIONS = tuple(
+        _csv("REMOTE_CLUSTER_PERMISSIONS", "k8s-cluster.resource.manage,k8s-cluster.cluster.manage")
+    )
+
     # --- 노드 셸 (호스트 터미널) ---
     #: 특권 debug Pod 를 만들 네임스페이스. 앱 네임스페이스와 섞지 않는다 —
     #: RBAC 을 좁게 주고, 그 이름으로 다른 워크로드를 흉내 낼 수 없게 한다.
@@ -69,6 +83,7 @@ class Config:
 
 class TestConfig(Config):
     AUTH_DISABLED = True
+    K8S_CLUSTER_SERVICE_URL = ""
     JSON_LOGS = False
     ALLOWED_NAMESPACES = ["oncloud-ai-devops-service", "oncloud-ai-devops-workspace"]
     NODE_SHELL_ROLE_IDS = ["seed-admin"]

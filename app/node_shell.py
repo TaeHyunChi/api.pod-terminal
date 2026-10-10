@@ -35,14 +35,14 @@ k8s 에는 "노드에 exec" 같은 API 가 없다. `kubectl debug node/` 가 하
 import json
 import logging
 import secrets
-import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from flask import current_app
 
-from .kube_exec import CA_PATH, ExecError, _token
+from .cluster_access import Access, local_access
+from .kube_exec import ExecError
 
 log = logging.getLogger(__name__)
 
@@ -50,17 +50,10 @@ log = logging.getLogger(__name__)
 NSENTER_COMMAND = ["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", "sh"]
 
 
-def _api() -> str:
-    return current_app.config["K8S_API"].rstrip("/")
-
-
-def _request(method: str, path: str, payload: dict | None = None) -> dict:
-    body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(f"{_api()}{path}", data=body, method=method)  # noqa: S310
-    request.add_header("Authorization", f"Bearer {_token()}")
-    if body:
-        request.add_header("Content-Type", "application/json")
-    context = ssl.create_default_context(cafile=CA_PATH)
+def _request(method: str, path: str, payload: dict | None = None, access: Access | None = None) -> dict:
+    access = access or local_access()
+    request = access.request(path, method=method, body=payload)
+    context = access.ssl_context()
     try:
         with urllib.request.urlopen(  # noqa: S310
             request, timeout=current_app.config["K8S_CONNECT_TIMEOUT"], context=context
@@ -83,21 +76,21 @@ def _request(method: str, path: str, payload: dict | None = None) -> dict:
         raise ExecError("k8s API 에 연결할 수 없습니다.") from None
 
 
-def node_exists(node: str) -> bool:
+def node_exists(node: str, access: Access | None = None) -> bool:
     """노드가 실제로 있는지. 없는 이름으로 특권 Pod 를 만들면 Pending 으로 매달린다."""
     try:
-        _request("GET", f"/api/v1/nodes/{urllib.parse.quote(node)}")
+        _request("GET", f"/api/v1/nodes/{urllib.parse.quote(node)}", access=access)
     except ExecError:
         return False
     return True
 
 
-def node_uids() -> list[str]:
+def node_uids(access: Access | None = None) -> list[str]:
     """이 클러스터 노드의 UID 목록 — 화면이 "이 중계가 붙는 클러스터"를 가리는 데 쓴다.
 
     노드 조회 권한(ClusterRole pod-terminal-node-read)은 노드 셸 때문에 이미 있다.
     """
-    body = _request("GET", "/api/v1/nodes")
+    body = _request("GET", "/api/v1/nodes", access=access)
     return sorted(
         {
             uid
@@ -155,22 +148,25 @@ def debug_pod_manifest(node: str, name: str, user_id: str) -> dict:
     }
 
 
-def create_debug_pod(node: str, user_id: str) -> str:
+def create_debug_pod(node: str, user_id: str, access: Access | None = None) -> str:
     """특권 Pod 를 만들고 이름을 돌려준다. 실패는 `ExecError`."""
     namespace = current_app.config["NODE_SHELL_NAMESPACE"]
     # 이름에 난수를 붙인다 — 같은 노드에 두 사람이 동시에 열 수 있어야 하고,
     # 지우기 전에 재사용하면 이름 충돌로 실패한다.
     name = f"node-shell-{_safe(node)}-{secrets.token_hex(4)}"
+    if access is not None and not access.local:
+        ensure_namespace(namespace, access)
     _request(
         "POST",
         f"/api/v1/namespaces/{urllib.parse.quote(namespace)}/pods",
         debug_pod_manifest(node, name, user_id),
+        access=access,
     )
     log.info("노드 셸 Pod 생성: node=%s pod=%s user=%s", node, name, user_id)
     return name
 
 
-def delete_debug_pod(name: str) -> None:
+def delete_debug_pod(name: str, access: Access | None = None) -> None:
     """세션이 끝나면 지운다. **실패해도 예외를 올리지 않는다** — 정리 실패로 사용자에게
     오류를 보여 봐야 할 일이 없고, 남은 Pod 는 activeDeadlineSeconds 가 끝낸다."""
     namespace = current_app.config["NODE_SHELL_NAMESPACE"]
@@ -179,13 +175,14 @@ def delete_debug_pod(name: str) -> None:
             "DELETE",
             f"/api/v1/namespaces/{urllib.parse.quote(namespace)}"
             f"/pods/{urllib.parse.quote(name)}?gracePeriodSeconds=0",
+            access=access,
         )
         log.info("노드 셸 Pod 삭제: %s", name)
     except ExecError as exc:
         log.warning("노드 셸 Pod 를 지우지 못했습니다(%s): %s", name, exc)
 
 
-def wait_running(name: str, timeout_seconds: int) -> None:
+def wait_running(name: str, timeout_seconds: int, access: Access | None = None) -> None:
     """Pod 가 Running 이 될 때까지 기다린다. 못 되면 `ExecError`."""
     import time
 
@@ -197,7 +194,7 @@ def wait_running(name: str, timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     last = ""
     while time.monotonic() < deadline:
-        body = _request("GET", path)
+        body = _request("GET", path, access=access)
         status = body.get("status") or {}
         phase = status.get("phase") or ""
         if phase == "Running":
@@ -210,6 +207,31 @@ def wait_running(name: str, timeout_seconds: int) -> None:
             last = waiting.get("reason") or last
         time.sleep(0.5)
     raise ExecError(f"노드 셸 Pod 가 시간 안에 뜨지 않았습니다{f' ({last})' if last else ''}.")
+
+
+def ensure_namespace(namespace: str, access: Access) -> None:
+    """다른 클러스터에는 노드 셸 전용 네임스페이스가 없을 수 있다 — 없으면 만든다(이 플랫폼 클러스터는
+    인스톨러가 만들어 두고, 이 서비스의 권한도 그 안으로만 좁혀 둔다)."""
+    try:
+        _request("GET", f"/api/v1/namespaces/{urllib.parse.quote(namespace)}", access=access)
+        return
+    except ExecError as exc:
+        if "찾을 수 없습니다" not in str(exc):
+            raise
+    _request(
+        "POST",
+        "/api/v1/namespaces",
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "name": namespace,
+                "labels": {"oncloud-ai/created-by-api": "pod-terminal-service"},
+            },
+        },
+        access=access,
+    )
+    log.info("노드 셸 네임스페이스 생성: cluster=%s ns=%s", access.cluster_id, namespace)
 
 
 def _safe(value: str) -> str:

@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 flask-sock==0.7.0
 # k8s exec 는 WebSocket 이라 **클라이언트**도 필요하다 — flask-sock 은 서버 쪽이다.
 websocket-client==1.8.0
+PyYAML==6.0.2

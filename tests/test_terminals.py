@@ -153,7 +153,10 @@ def test_connect_clears_the_read_timeout(app, monkeypatch):
     fake = types.ModuleType("websocket")
     fake.create_connection = lambda *a, **k: conn
     monkeypatch.setitem(sys.modules, "websocket", fake)
-    monkeypatch.setattr(kube_exec, "_token", lambda: "t")
+    from app import cluster_access
+
+    monkeypatch.setattr(cluster_access.Access, "token", lambda self: "t")
+    monkeypatch.setattr(cluster_access.Access, "ssl_context", lambda self: None)
 
     with app.app_context():
         assert kube_exec.connect("ns", "p") is conn
@@ -186,7 +189,7 @@ def test_pod_status_outside_cluster_is_502(client):
 def test_missing_pod_is_not_available(client, monkeypatch):
     """사라진 Pod 는 exists/available 이 false — 화면은 상태 정보만 그린다."""
     monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
-    monkeypatch.setattr(kube_exec, "pod_status", lambda ns, pod: None)
+    monkeypatch.setattr(kube_exec, "pod_status", lambda ns, pod, **_kw: None)
     body = _status(client, "namespace=oncloud-ai-devops-service&pod=gone").get_json()
     assert body["exists"] is False
     assert body["available"] is False
@@ -198,7 +201,7 @@ def test_running_pod_is_available(client, monkeypatch):
     monkeypatch.setattr(
         kube_exec,
         "pod_status",
-        lambda ns, pod: {
+        lambda ns, pod, **_kw: {
             "phase": "Running", "ready": True,
             "startedAt": "2026-07-30T01:00:00Z", "reason": "",
         },
@@ -213,7 +216,7 @@ def test_terminated_pod_gets_no_terminal(client, monkeypatch):
     monkeypatch.setattr(
         kube_exec,
         "pod_status",
-        lambda ns, pod: {
+        lambda ns, pod, **_kw: {
             "phase": "Succeeded", "ready": False,
             "startedAt": "2026-07-30T01:00:00Z", "reason": "",
         },
@@ -240,7 +243,7 @@ def test_cluster_identity_lists_node_uids(client, monkeypatch):
     monkeypatch.setattr(
         node_shell,
         "_request",
-        lambda method, path, payload=None: {
+        lambda method, path, payload=None, **_kw: {
             "items": [
                 {"metadata": {"name": "b", "uid": "uid-2"}},
                 {"metadata": {"name": "a", "uid": "uid-1"}},
@@ -249,13 +252,13 @@ def test_cluster_identity_lists_node_uids(client, monkeypatch):
         },
     )
     body = client.get("/api/v1/terminals/cluster-identity").get_json()
-    assert body == {"available": True, "nodeUids": ["uid-1", "uid-2"], "message": ""}
+    assert body == {"available": True, "nodeUids": ["uid-1", "uid-2"], "message": "", "remote": False}
 
 
 def test_cluster_identity_k8s_failure_is_502(client, monkeypatch):
     from app import node_shell
 
-    def boom():
+    def boom(**_kw):
         raise kube_exec.ExecError("k8s API 에 연결할 수 없습니다.")
 
     monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)

@@ -106,6 +106,19 @@ def has_permission(key: str, claims: dict | None) -> bool:
     return isinstance(perms, list) and key in perms
 
 
+def can_reach_other_clusters(claims: dict | None) -> bool:
+    """다른 클러스터(클러스터 관리에 추가된 것)에 터미널을 열 자격 — 관리자 또는 클러스터 관리 권한.
+
+    다른 클러스터는 이 서비스의 네임스페이스 허용 목록이 아니라 그 클러스터의 관리자 kubeconfig 로 붙는다.
+    그래서 로그인만으로는 열지 않는다(api.log-stream `auth.can_reach_other_clusters` 와 같은 규칙).
+    """
+    if current_app.config.get("AUTH_DISABLED"):
+        return True
+    if not claims:
+        return False
+    return any(has_permission(key, claims) for key in current_app.config["REMOTE_CLUSTER_PERMISSIONS"])
+
+
 def require_permission(key: str, claims: dict | None) -> None:
     """HTTP 핸들러용 — 권한이 없으면 403 PERMISSION_REQUIRED 를 던진다."""
     if not has_permission(key, claims):

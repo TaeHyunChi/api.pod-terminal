@@ -73,7 +73,7 @@ def test_node_status_requires_the_node_parameter(app, client):
 def test_node_status_reports_not_allowed_for_a_normal_user(app, client, monkeypatch):
     """화면이 버튼을 미리 잠글 수 있어야 한다 — 붙고 나서 거절하면 원인을 모른다."""
     monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
-    monkeypatch.setattr(node_shell, "node_exists", lambda node: True)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node, **_kw: True)
 
     body = client.get(
         f"{BASE}/node-status?node=k3s-worker&token={_token(app, roleIds=['seed-user'])}"
@@ -87,7 +87,7 @@ def test_node_status_reports_not_allowed_for_a_normal_user(app, client, monkeypa
 
 def test_node_status_reports_a_missing_node(app, client, monkeypatch):
     monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
-    monkeypatch.setattr(node_shell, "node_exists", lambda node: False)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node, **_kw: False)
 
     body = client.get(
         f"{BASE}/node-status?node=없는노드&token={_token(app, roleIds=['seed-admin'])}"
@@ -98,7 +98,7 @@ def test_node_status_reports_a_missing_node(app, client, monkeypatch):
 
 def test_node_status_available_for_an_admin(app, client, monkeypatch):
     monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
-    monkeypatch.setattr(node_shell, "node_exists", lambda node: True)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node, **_kw: True)
 
     body = client.get(
         f"{BASE}/node-status?node=k3s-worker&token={_token(app, roleIds=['seed-admin'])}"
@@ -168,7 +168,7 @@ def test_pod_name_falls_back_when_nothing_survives():
 
 def test_delete_never_raises(app, monkeypatch):
     """정리 실패로 사용자에게 오류를 보여 봐야 할 일이 없다(수명 제한이 받아 준다)."""
-    def _raise(method, path, payload=None):
+    def _raise(method, path, payload=None, access=None):
         raise node_shell.ExecError("k8s 다운")
 
     monkeypatch.setattr(node_shell, "_request", _raise)
@@ -229,7 +229,7 @@ def test_empty_role_list_also_blocks_the_permission(app):
 
 def test_node_status_allowed_with_permission(app, client, monkeypatch):
     monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
-    monkeypatch.setattr(node_shell, "node_exists", lambda node: True)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node, **_kw: True)
     token = _token(app, roleIds=["seed-user"], permissions=[PERM])
     body = client.get(f"{BASE}/node-status?node=k3s-worker&token={token}").get_json()
     assert body["allowed"] is True
@@ -238,7 +238,7 @@ def test_node_status_allowed_with_permission(app, client, monkeypatch):
 
 def test_node_status_message_names_the_permission(app, client, monkeypatch):
     monkeypatch.setattr("app.kube_exec.in_cluster", lambda: True)
-    monkeypatch.setattr(node_shell, "node_exists", lambda node: True)
+    monkeypatch.setattr(node_shell, "node_exists", lambda node, **_kw: True)
     token = _token(app, roleIds=["seed-user"], permissions=[])
     body = client.get(f"{BASE}/node-status?node=k3s-worker&token={token}").get_json()
     assert body["allowed"] is False
