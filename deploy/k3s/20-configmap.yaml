@@ -37,3 +37,7 @@ data:
   NODE_SHELL_NAMESPACE: oncloud-ai-node-shell
   NODE_SHELL_ROLE_IDS: seed-admin
   NODE_SHELL_IMAGE: oncloud-ai.co.kr:5000/system/busybox:1.36
+  # --- 분산 트레이스 (LGTM: OTLP → Alloy → Tempo, app/otel.py) — 비우면 계측하지 않는다 ---
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy.oncloud-ai-monitoring.svc.cluster.local:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=production
