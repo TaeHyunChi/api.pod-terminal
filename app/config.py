@@ -67,6 +67,10 @@ class Config:
     #: 플랫폼 관리자 Role id — 권한 검사(`has_permission`)에서 관리자는 늘 모든 권한을 가진다.
     #: 다른 서비스 ConfigMap 의 ADMIN_ROLE_ID 와 같은 값이어야 한다.
     ADMIN_ROLE_ID = os.getenv("ADMIN_ROLE_ID", "seed-admin")
+    # 관리자 전용 네임스페이스 — 허용 목록 밖이라도 관리자(ADMIN_ROLE_ID)는 연다. 일반 사용자는
+    # "관리자 전용 POD 입니다."(ADMIN_ONLY). `*` 는 허용 목록 밖 전부(kube-system 포함), 비우면 끈다.
+    # RBAC 도 클러스터 단위로 줘야 한다(30-rbac.yaml 의 ClusterRole).
+    ADMIN_NAMESPACES = _csv("ADMIN_NAMESPACES", "*")
     #: debug Pod 가 Running 이 될 때까지 기다리는 시간(초).
     NODE_SHELL_START_TIMEOUT = int(os.getenv("NODE_SHELL_START_TIMEOUT", "60"))
     #: debug Pod 의 최대 수명(초). 서버가 지우지 못하고 죽어도 스스로 끝난다.

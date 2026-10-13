@@ -47,6 +47,14 @@ def claims_from_query() -> dict | None:
     return _claims(token)
 
 
+def claims_from_request() -> dict | None:
+    """검증된 JWT 클레임 — Authorization 헤더 먼저, 없으면 `?token=`(WebSocket). 실패하면 None."""
+    header = (request.headers.get("Authorization") or "").strip()
+    if header.lower().startswith("bearer "):
+        return _claims(header[7:].strip())
+    return claims_from_query()
+
+
 def _claims(token: str) -> dict | None:
     if current_app.config.get("AUTH_DISABLED"):
         return {"sub": (request.args.get("userId") or "anonymous").strip() or "anonymous"}
@@ -123,3 +131,24 @@ def require_permission(key: str, claims: dict | None) -> None:
     """HTTP 핸들러용 — 권한이 없으면 403 PERMISSION_REQUIRED 를 던진다."""
     if not has_permission(key, claims):
         raise Forbidden(f"이 작업에는 '{key}' 권한이 필요합니다.", code="PERMISSION_REQUIRED")
+
+def is_admin(claims: dict | None) -> bool:
+    """플랫폼 관리자(Role ADMIN_ROLE_ID) — 관리자 전용 네임스페이스(ADMIN_NAMESPACES)의 Pod 를 열 자격."""
+    if current_app.config.get("AUTH_DISABLED"):
+        return True
+    if not claims:
+        return False
+    roles: list[str] = []
+    for name in ("roleIds", "roles", "role_ids"):
+        value = claims.get(name)
+        if isinstance(value, str):
+            roles.append(value)
+        elif isinstance(value, list):
+            roles.extend(r for r in value if isinstance(r, str))
+    return current_app.config["ADMIN_ROLE_ID"] in roles
+
+
+def is_admin_namespace(namespace: str) -> bool:
+    """허용 목록 밖이지만 관리자는 열 수 있는 네임스페이스 — 설정 ADMIN_NAMESPACES(`*` = 나머지 전부)."""
+    admin = current_app.config.get("ADMIN_NAMESPACES") or []
+    return "*" in admin or namespace in admin

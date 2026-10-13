@@ -32,7 +32,10 @@ from ... import cluster_access, granted, kube_exec, node_shell
 from ...auth import (
     can_reach_other_clusters,
     claims_from_query,
+    claims_from_request,
     has_permission,
+    is_admin,
+    is_admin_namespace,
     subject_from_query,
     subject_from_request,
 )
@@ -67,8 +70,11 @@ def _access_for(
         if not access.local:
             return access, None
     if namespace is not None and not granted.is_allowed(namespace):
-        # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
-        return None, ("FORBIDDEN", "이 네임스페이스는 조회할 수 없습니다.", 403)
+        if not is_admin_namespace(namespace):
+            # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
+            return None, ("FORBIDDEN", "이 네임스페이스는 조회할 수 없습니다.", 403)
+        if not is_admin(claims_from_request()):
+            return None, ("ADMIN_ONLY", "관리자 전용 POD 입니다.", 403)
     if require_cluster and not kube_exec.in_cluster():
         return None, ("K8S_UNAVAILABLE", "클러스터 밖에서는 터미널을 열 수 없습니다.", 502)
     return access or cluster_access.local_access(), None
