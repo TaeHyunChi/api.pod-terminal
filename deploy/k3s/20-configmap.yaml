@@ -24,7 +24,7 @@ data:
   # 실행하는 권한이라, 목록이 없으면 로그인한 사람이 kube-system 컨테이너에
   # 셸을 띄울 수 있다. RBAC 도 이 네임스페이스들에만 준다(30-rbac.yaml).
   ALLOWED_NAMESPACES: >-
-    oncloud-ai-platform,oncloud-ai-sandbox,oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-volume,oncloud-ai-model-serving,oncloud-ai-agent-runtime,oncloud-ai-agent-ecosystem,oncloud-ai-build,oncloud-ai-chroma,oncloud-ai-database,oncloud-ai-gitea,oncloud-ai-harbor,oncloud-ai-kong,oncloud-ai-rabbitmq,oncloud-ai-workflow-ecosystem
+    oncloud-ai-platform,oncloud-ai-sandbox,oncloud-ai-devops-workspace,oncloud-ai-devops-service,oncloud-ai-model-workspace,oncloud-ai-volume,oncloud-ai-model-serving,oncloud-ai-agent-runtime,oncloud-ai-agent-ecosystem,oncloud-ai-build,oncloud-ai-chroma,oncloud-ai-database,oncloud-ai-gitea,oncloud-ai-harbor,oncloud-ai-kong,oncloud-ai-rabbitmq,oncloud-ai-workflow-ecosystem,oncloud-ai-simulator
   # 볼륨 권한 설정(관리자 메뉴)에서 '터미널' 권한을 켠 네임스페이스를 위 목록에 더한다(app/granted.py).
   VOLUME_SERVICE_URL: http://volume-service.oncloud-ai-platform.svc.cluster.local:8215/api/v1
   # 다른 클러스터(클러스터 관리에 추가된 것) — kubeconfig 를 k8s-cluster-service 의 서비스 전용 경로로 받아 붙는다.
