@@ -14,9 +14,10 @@ info:
     nsenter 로 호스트 셸에 붙고, 연결이 끝나면 Pod 를 지운다.
 
     접근 범위:
-    - Pod 터미널: 로그인 사용자. 네임스페이스는 설정 `ALLOWED_NAMESPACES` + 볼륨 권한 설정에서
-      '터미널' 권한이 켜진 네임스페이스(volume-service, 30초 캐시)만 허용 — 그 밖은 어떤 네임스페이스가
-      있는지 알려 주지 않고 거절한다.
+    - Pod 터미널: 로그인 사용자. 네임스페이스는 설정 `ALLOWED_NAMESPACES` + 네임스페이스 권한 설정에서
+      '웹 터미널' 이 켜진 네임스페이스(volume-service, 클러스터별 — 기동 뒤 처음 쓸 때 읽고 '권한 적용'
+      재시작으로 다시 읽는다)만 허용 — 그 밖은 관리자 전용(ADMIN_ONLY). 다른 클러스터는 관리자·클러스터
+      관리 권한이 없으면 그 클러스터에 웹 터미널이 켜진 네임스페이스만.
     - 노드 셸: `NODE_SHELL_ROLE_IDS` 역할(기본 seed-admin) 또는 `pod-terminal.node-shell.access` 권한
       (관리자는 늘 허용). 역할 목록이 비면 아무도 열 수 없다.
 
@@ -43,11 +44,12 @@ paths:
       operationId: listTerminalNamespaces
       summary: 터미널을 열 수 있는 네임스페이스 목록
       description: |
-        설정 `ALLOWED_NAMESPACES` 에 볼륨 권한 설정의 '터미널' 권한 네임스페이스를 더한 목록. 로그인이 필요하다
-        (`Authorization: Bearer` 헤더를 먼저 보고 없으면 `?token=` 쿼리). 그 토큰으로 volume-service 를 읽는다 —
-        읽지 못하면 설정 목록만 돌려준다.
+        설정 `ALLOWED_NAMESPACES` 에 네임스페이스 권한 설정의 '웹 터미널' 네임스페이스를 더한 목록. `clusterId` 가
+        다른 클러스터면 그 클러스터의 권한 설정만. 로그인이 필요하다(`Authorization: Bearer` 헤더를 먼저 보고
+        없으면 `?token=` 쿼리). volume-service 는 서비스 토큰으로 읽는다 — 읽지 못하면 설정 목록만 돌려준다.
       parameters:
         - $ref: '#/components/parameters/QueryToken'
+        - $ref: '#/components/parameters/ClusterId'
       responses:
         '200':
           description: 네임스페이스 목록

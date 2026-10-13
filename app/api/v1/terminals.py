@@ -50,25 +50,37 @@ def _access_for(
 ) -> tuple[cluster_access.Access | None, tuple[str, str, int] | None]:
     """`?clusterId=` → (접속 정보, 오류(code, message, http)).
 
-    - clusterId 가 없거나 이 플랫폼 클러스터면: 예전 규칙 그대로(네임스페이스 허용 목록 · in-cluster).
-    - 다른 클러스터면: 관리자·클러스터 관리 권한만, 그 클러스터의 kubeconfig 로. 허용 목록은 이 플랫폼
-      클러스터의 규칙이라 적용하지 않는다. `namespace` 가 None 이면(노드 작업) 허용 목록을 보지 않는다.
+    - 이 플랫폼 클러스터(clusterId 없음 · LOCAL_CLUSTER_IDS · 노드 주소로 등록된 클러스터 id):
+      설정 허용 목록 + 네임스페이스 권한 설정(웹 터미널)이면 누구나, 그 밖은 관리자 전용(ADMIN_ONLY).
+    - 다른 클러스터: 관리자·클러스터 관리 권한이면 전부, 아니면 네임스페이스 권한 설정에서 그 클러스터에
+      웹 터미널이 켜진 네임스페이스만(노드 작업 — `namespace` None — 은 권한이 있어야). kubeconfig 로 붙는다.
+
+    클러스터 id 를 **먼저 풀어** 플랫폼 클러스터인지 본다 — 화면은 클러스터 관리의 id 를 넘기므로, 풀기 전에
+    "다른 클러스터"로 거절하면 일반 사용자가 플랫폼 클러스터의 Pod 터미널을 못 연다.
     """
     cluster_id = (request.args.get("clusterId") or "").strip()
     access = None
     if not cluster_access.is_local_id(cluster_id):
-        if not can_reach_other_clusters(claims_from_query()):
-            return None, (
-                "FORBIDDEN",
-                "다른 클러스터의 터미널은 관리자 또는 클러스터 관리 권한이 있어야 열 수 있습니다.",
-                403,
-            )
+        privileged = can_reach_other_clusters(claims_from_query())
         try:
             access = cluster_access.resolve(cluster_id)
         except cluster_access.ClusterAccessError as exc:
+            if not privileged:
+                return None, (
+                    "FORBIDDEN",
+                    "다른 클러스터의 터미널은 관리자 또는 클러스터 관리 권한이 있어야 열 수 있습니다.",
+                    403,
+                )
             return None, ("K8S_UNAVAILABLE", str(exc), 502)
         if not access.local:
-            return access, None
+            if privileged or (namespace is not None and granted.is_allowed(namespace, cluster_id)):
+                return access, None
+            return None, (
+                "FORBIDDEN",
+                "다른 클러스터의 이 네임스페이스는 터미널을 열 수 없습니다 — 관리자·클러스터 관리 권한이나 "
+                "네임스페이스 권한 설정(웹 터미널)이 필요합니다.",
+                403,
+            )
     if namespace is not None and not granted.is_allowed(namespace):
         if not is_admin_namespace(namespace):
             # 어떤 네임스페이스가 있는지는 알려 주지 않는다.
@@ -84,11 +96,19 @@ def _access_for(
 def allowed_namespaces():
     """터미널을 열 수 있는 네임스페이스 목록 — 화면이 고를 수 있게.
 
-    허용 목록도 클러스터 구성 정보라 로그인한 사용자에게만 보여 준다.
+    허용 목록도 클러스터 구성 정보라 로그인한 사용자에게만 보여 준다. 설정 허용 목록 + 네임스페이스 권한
+    설정(웹 터미널). `?clusterId=` 가 다른 클러스터면 그 클러스터의 권한 설정만.
     """
     if not subject_from_request():
         return {"code": "UNAUTHORIZED", "message": "인증이 필요합니다."}, 401
-    return {"items": granted.allowed_namespaces()}
+    cluster_id = (request.args.get("clusterId") or "").strip()
+    key = ""
+    if not cluster_access.is_local_id(cluster_id):
+        try:
+            key = "" if cluster_access.resolve(cluster_id).local else cluster_id
+        except cluster_access.ClusterAccessError:
+            return {"items": []}
+    return {"items": granted.allowed_namespaces(key)}
 
 
 @bp.get("/cluster-identity")

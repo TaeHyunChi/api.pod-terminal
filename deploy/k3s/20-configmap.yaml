@@ -28,7 +28,8 @@ data:
   # 관리자 전용 네임스페이스 — 위 목록 밖이라도 관리자(seed-admin)는 연다. 일반 사용자는 "관리자 전용 POD 입니다."
   # `*` 는 목록 밖 전부(kube-system · 모니터링 · Keycloak …), 비우면 끈다. 클러스터 권한은 30-rbac.yaml 의 ClusterRole.
   ADMIN_NAMESPACES: "*"
-  # 볼륨 권한 설정(관리자 메뉴)에서 '터미널' 권한을 켠 네임스페이스를 위 목록에 더한다(app/granted.py).
+  # 네임스페이스 권한 설정(관리자 메뉴, 클러스터별)에서 '웹 터미널' 을 켠 네임스페이스를 위 목록에 더한다(app/granted.py).
+  # 기동 뒤 처음 쓸 때 한 번 읽는다 — 화면의 '권한 적용'이 이 Deployment 를 재시작한다(volume-service 0.7.0).
   VOLUME_SERVICE_URL: http://volume-service.oncloud-ai-platform.svc.cluster.local:8215/api/v1
   # 다른 클러스터(클러스터 관리에 추가된 것) — kubeconfig 를 k8s-cluster-service 의 서비스 전용 경로로 받아 붙는다.
   # 이 플랫폼 클러스터가 노드 주소로 등록돼 있으면 ServiceAccount 로 붙는다(허용 목록 그대로).

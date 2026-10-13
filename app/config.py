@@ -53,8 +53,8 @@ class Config:
     #: RBAC 을 좁게 주고, 그 이름으로 다른 워크로드를 흉내 낼 수 없게 한다.
     NODE_SHELL_NAMESPACE = os.getenv("NODE_SHELL_NAMESPACE", "oncloud-ai-node-shell")
 
-    # 볼륨 권한 설정(volume-service 0.4.0) — '터미널' 권한이 켜진 네임스페이스를 ALLOWED_NAMESPACES 에 더한다
-    # (app/granted.py). 비우면 설정 목록만 쓴다.
+    # 네임스페이스 권한 설정(volume-service 0.7.0, 클러스터별) — '웹 터미널' 이 켜진 네임스페이스를 더한다
+    # (app/granted.py). 기동 뒤 처음 쓸 때 한 번 읽는다('권한 적용'이 재시작). 비우면 설정 목록만 쓴다.
     VOLUME_SERVICE_URL = os.getenv("VOLUME_SERVICE_URL", "")
     #: debug Pod 이미지. 노드에 이미 있는 것을 쓴다(외부망이 막혀도 뜬다).
     #: nsenter 애플릿이 있어야 한다 — busybox 에 들어 있다.

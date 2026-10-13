@@ -90,3 +90,49 @@ def test_node_shell_creates_its_namespace_on_another_cluster(app, monkeypatch):
         node_shell.create_debug_pod("oncloud-test", "u1", access=access)
     assert ("POST", "/api/v1/namespaces") in calls
     assert any(m == "POST" and p.endswith("/pods") for m, p in calls)
+
+
+# --- 네임스페이스 권한 설정(웹 터미널, 클러스터별 — volume-service 0.7.0) --------------------------------
+@pytest.fixture
+def grants(app, monkeypatch):
+    from app import granted
+
+    granted.reset()
+    app.config.update(AUTH_DISABLED=False, JWT_SECRET="s3cret", VOLUME_SERVICE_URL="http://volume/api/v1")
+    table = {"": ["team-a"], "c-remote": ["team-x"]}
+    calls = []
+    monkeypatch.setattr(granted, "_fetch", lambda key: calls.append(key) or list(table.get(key, [])))
+    yield table, calls
+    granted.reset()
+
+
+def test_remote_grant_opens_terminal_for_plain_users(app, client, grants, monkeypatch):
+    monkeypatch.setattr(kube_exec, "pod_status", lambda ns, pod, **_kw: None)
+    plain = {"Authorization": f"Bearer {_token(roleIds=['seed-user'])}"}
+    ok = client.get("/api/v1/terminals/pod-status?namespace=team-x&pod=p&clusterId=c-remote", headers=plain)
+    assert ok.status_code == 200, ok.get_json()
+    no = client.get("/api/v1/terminals/pod-status?namespace=team-a&pod=p&clusterId=c-remote", headers=plain)
+    assert no.status_code == 403
+    listed = client.get("/api/v1/terminals/namespaces?clusterId=c-remote", headers=plain).get_json()["items"]
+    assert listed == ["team-x"]
+
+
+def test_platform_cluster_id_is_resolved_before_refusing_plain_users(app, client, grants, monkeypatch):
+    app.config["LOCAL_API_SERVER_URLS"] = ("https://10.74.89.47:6443",)
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(kube_exec, "pod_status", lambda ns, pod, **_kw: None)
+    plain = {"Authorization": f"Bearer {_token(roleIds=['seed-user'])}"}
+    for ns in (app.config["ALLOWED_NAMESPACES"][0], "team-a"):
+        res = client.get(f"/api/v1/terminals/pod-status?namespace={ns}&pod=p&clusterId=c-platform", headers=plain)
+        assert res.status_code == 200, (ns, res.get_json())
+
+
+def test_grants_are_read_once_until_restart(app, client, grants, monkeypatch):
+    table, calls = grants
+    monkeypatch.setattr(kube_exec, "in_cluster", lambda: True)
+    monkeypatch.setattr(kube_exec, "pod_status", lambda ns, pod, **_kw: None)
+    plain = {"Authorization": f"Bearer {_token(roleIds=['seed-user'])}"}
+    assert client.get("/api/v1/terminals/pod-status?namespace=team-a&pod=p", headers=plain).status_code == 200
+    table[""] = ["team-b"]
+    assert client.get("/api/v1/terminals/pod-status?namespace=team-b&pod=p", headers=plain).status_code == 403
+    assert calls == [""]

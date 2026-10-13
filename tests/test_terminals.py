@@ -316,7 +316,7 @@ def test_cluster_identity_requires_auth(app, client):
 def test_볼륨_권한_설정의_터미널_네임스페이스를_더한다(app, monkeypatch):
     from app import granted
 
-    monkeypatch.setattr(granted, "granted", lambda: ["team-a", app.config["ALLOWED_NAMESPACES"][0]])
+    monkeypatch.setattr(granted, "granted", lambda key="": ["team-a", app.config["ALLOWED_NAMESPACES"][0]])
     with app.app_context():
         names = granted.allowed_namespaces()
         assert names[: len(app.config["ALLOWED_NAMESPACES"])] == list(app.config["ALLOWED_NAMESPACES"])
