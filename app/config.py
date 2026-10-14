@@ -71,6 +71,9 @@ class Config:
     # "관리자 전용 POD 입니다."(ADMIN_ONLY). `*` 는 허용 목록 밖 전부(kube-system 포함), 비우면 끈다.
     # RBAC 도 클러스터 단위로 줘야 한다(30-rbac.yaml 의 ClusterRole).
     ADMIN_NAMESPACES = _csv("ADMIN_NAMESPACES", "*")
+    #: 다른 클러스터에서 관리자만 여는 시스템 네임스페이스 — 클러스터 관리 권한자도 "관리자 전용 POD 입니다."
+    #: `kube-` 로 시작하는 곳은 목록과 관계없이 포함(app/auth.py is_remote_system_namespace).
+    REMOTE_ADMIN_NAMESPACES = _csv("REMOTE_ADMIN_NAMESPACES", "default,kube-system,kube-public,kube-node-lease")
     #: debug Pod 가 Running 이 될 때까지 기다리는 시간(초).
     NODE_SHELL_START_TIMEOUT = int(os.getenv("NODE_SHELL_START_TIMEOUT", "60"))
     #: debug Pod 의 최대 수명(초). 서버가 지우지 못하고 죽어도 스스로 끝난다.
